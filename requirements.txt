@@ -1,0 +1,16 @@
+Flask
+pymongo
+dnspython
+reportlab
+gunicorn
+requests
+flask_cors
+fpdf
+apscheduler
+cryptography
+pillow
+PyJWT
+razorpay
+setuptools
+bs4
+

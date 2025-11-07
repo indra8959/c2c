@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Appointment Payment</title>
+    <!-- Using a popular icon library for payment icons and the doctor logo --><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Load Inter font for modern typography --><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        /* Basic Reset and Setup */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #06B6D4, #38BDF8);
+            /* background-color: #f9fafb;  */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        /* Payment Container (The Card) - Neo-Minimalist Style */
+        .payment-container {
+            background-color: #ffffff;
+            border-radius: 25px; /* Softer, more modern corners */
+            /* Subtle, diffused shadow for a floating effect */
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.08); 
+            width: 100%;
+            max-width: 460px;
+            padding: 40px;
+            transition: transform 0.3s ease;
+        }
+        
+        .payment-container:hover {
+            transform: translateY(-3px);
+        }
+
+        /* Header Styling */
+        .payment-header {
+            text-align: center;
+            margin-bottom: 35px;
+            padding-bottom: 20px;
+        }
+
+        .main-title {
+            color: #1f2937;
+            font-size: 2.1em; 
+            margin-bottom: 5px;
+            font-weight: 800;
+            display: flex; 
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Doctor Logo Styling */
+        .doctor-logo {
+            color: #06B6D4; /* Cyan accent color */
+            font-size: 1.4em;
+            margin-right: 12px;
+        }
+
+        .logo {
+            width: 200px;
+            /* color: #059669; 
+            font-size: 1.9em;
+            font-weight: 900; 
+            letter-spacing: 0.8px;
+            margin-top: 10px; */
+        }
+
+        /* Appointment Details Section - Clean, minimal look */
+        .appointment-details {
+            margin-bottom: 30px;
+            border-radius: 15px;
+            padding: 10px;
+            background-color: #f0f8ff; /* Very light blue background */
+        }
+
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 10px;
+            font-size: 1em;
+            color: #333;
+        }
+        
+        .detail-item:not(:last-child) {
+            border-bottom: 1px solid #e0e7ff; /* Soft divider */
+        }
+
+        .detail-item span {
+            font-weight: 500;
+            color: #6b7280;
+        }
+        
+        .detail-item strong {
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        /* Confirmation Message */
+        .simplified-content {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            border-radius: 12px;
+            background-color: #fffbeb; /* Soft warning yellow */
+            color: #92400e;
+            font-size: 0.95em;
+        }
+        
+        .confirmation-message {
+            line-height: 1.6;
+        }
+
+        /* Pay Button Styling - Pill Shape & Cyan Gradient */
+        .pay-button {
+            width: 100%;
+            padding: 22px; 
+            /* Striking Cyan/Teal Gradient */
+            background: linear-gradient(135deg, #06B6D4, #38BDF8); 
+            color: white;
+            font-size: 1.4em;
+            font-weight: 800;
+            border: none;
+            border-radius: 50px; /* Pill shape */
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(6, 182, 212, 0.4);
+            transition: background 0.3s, transform 0.1s, box-shadow 0.3s;
+        }
+
+        .pay-button:hover {
+            background: linear-gradient(135deg, #38BDF8, #06B6D4);
+            box-shadow: 0 10px 25px rgba(6, 182, 212, 0.6);
+        }
+
+        .pay-button:active {
+            transform: scale(0.98);
+        }
+
+        .pay-button i {
+            margin-right: 12px;
+        }
+
+        /* Footer (Security and Card Icons) */
+        .payment-footer {
+            margin-top: 40px;
+            padding-top: 25px;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+        }
+
+        .security-info {
+            font-size: 0.9em;
+            color: #6b7280;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+
+        .security-info i {
+            color: #059669;
+            margin-right: 8px;
+            font-size: 1.1em;
+        }
+
+        .accepted-cards {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .accepted-cards i {
+            font-size: 2.4em;
+            color: #d1d5db; /* Lighter icons, letting the card dominate */
+            transition: color 0.3s;
+        }
+        
+        .accepted-cards i:hover {
+            color: #6b7280;
+        }
+
+        .branding-footer {
+            text-align: center;
+            margin-top: 10px;
+            padding-top: 20px;
+            border-top: 1px dashed #e5e7eb; /* Dashed line for a softer separation */
+            font-size: 0.85em;
+            color: #9ca3af; /* Light gray for subtle branding */
+            font-weight: 500;
+        }
+
+        .branding-footer img {
+            width: 200px;
+            margin-top: -20px;
+            /* height: 24px; */
+            vertical-align: middle; /* Aligns the image with the text baseline */
+            margin-right: 8px;
+        }
+
+        /* Responsive adjustments for mobile screens */
+        @media (max-width: 480px) {
+            .payment-container {
+                padding: 30px 20px;
+                border-radius: 20px;
+            }
+            .main-title {
+                font-size: 1.8em;
+            }
+            .amount {
+                font-size: 1.6em;
+            }
+            .pay-button {
+                font-size: 1.2em;
+                padding: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="payment-container">
+        <!-- Header -->
+        <header class="payment-header">
+           
+            <!-- Price in Rupee format (Rich Green) -->
+             <img class="logo" src="https://care2connect.in/assets/pp-BXFzvpwK.png" alt="img"/>
+            <!-- <p class="amount">Consultation Fee: *₹220.00*</p> -->
+        </header>
+
+        <!-- Appointment Details - Clean, Minimal Structure -->
+        <div class="appointment-details">
+            <div class="detail-item"><span>Doctor:</span> <strong>Dr. Neeraj Bansal</strong></div>
+            <div class="detail-item"><span>Date:</span> <strong>{{ date }}</strong></div>
+            <div class="detail-item"><span>Time:</span> <strong>{{ time }}</strong></div>
+            <div class="detail-item"><span>Type:</span> <strong>OPD Booking Fee</strong></div>
+        </div>
+
+        <!-- Confirmation Message - Soft Yellow Info Box -->
+        <div class="simplified-content">
+            <p class="confirmation-message">
+                Confirming this action will complete your transaction securely through encrypted payment gateway.
+            </p>
+        </div>
+        <!-- Pay Button - Stylish Cyan Gradient, Pill Shape -->
+       <button 
+  type="button" 
+  class="pay-button"
+  onclick="openInRealBrowser('{{ pay_url }}')"
+>
+  <i class="fas fa-lock"></i> Pay Now ₹220.00
+</button>
+
+<script>
+function openInRealBrowser(url) {
+  const ua = navigator.userAgent.toLowerCase();
+
+  // Detect WhatsApp or Facebook in-app browsers
+  if (ua.includes("whatsapp") || ua.includes("fb") || ua.includes("instagram")) {
+    // This will trigger Chrome to open on Android
+    const finalUrl = 'intent://' + url.replace(/^https?:\/\//, '') + 
+      '#Intent;scheme=https;package=com.android.chrome;end';
+
+    window.location.href = finalUrl;
+
+    // Fallback message if intent fails
+    setTimeout(() => {
+    //   alert("Please tap the three dots (⋮) in the top-right corner and choose 'Open in Chrome' for secure payment.");
+    }, 1500);
+  } else {
+    // Normal browser - just open new tab
+    window.open(url, '_blank');
+  }
+}
+</script>
+
+        <!-- Footer / Trust Badges -->
+        <footer class="payment-footer">
+            <div class="security-info">
+                <i class="fas fa-shield-alt"></i> 256-bit SSL Encryption
+            </div>
+            <div class="accepted-cards">
+                <i class="fab fa-cc-visa" title="Visa"></i>
+                <i class="fab fa-cc-mastercard" title="Mastercard"></i>
+                <i class="fab fa-cc-amex" title="American Express"></i>
+                <i class="fab fa-cc-discover" title="Discover"></i>
+            </div>
+        </footer>
+
+        <div class="branding-footer">
+            <p>Powered by</p>
+            <img src='https://firebasestorage.googleapis.com/v0/b/duniyamart-e69a1.appspot.com/o/images%2FiPhone%2016%20-%201.png?alt=media&token=da6ce006-0961-4922-8144-b37cb4031f26' alt='img'>
+        </div>
+    </div>
+</body>
+</html>
