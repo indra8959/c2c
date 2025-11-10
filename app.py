@@ -1935,7 +1935,7 @@ def doctor_dropdown():
         # ✅ Only fetch _id and name fields
         documents = list(doctors.find(
             {"role": "doctor"},
-            {"_id": 1, "name": 1}   # projection
+            {"_id": 1, "name": 1, "secondaryId":1}   # projection
         ))
 
         if not documents:
@@ -2435,6 +2435,7 @@ if __name__ == "__main__":
 
 # if __name__ == "__main__":
 #     app.run(port=5001,debug=True)
+
 
 
 
