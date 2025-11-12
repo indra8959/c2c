@@ -286,6 +286,91 @@ def webhook():
 
                     # return old_user_send(from_number)
                     return "ok",200
+
+                elif msg_type == 'text' and body.lower() == "hlo":
+                    appointment_flow(from_number)
+                    send_selection_enroll(from_number)
+                    # send_selection(from_number)
+                    print(body.lower())
+
+                    # utc_now = datetime.now(ZoneInfo("UTC"))
+                    # future_time = utc_now + timedelta(minutes=5)
+                    # tempdata = {"number":from_number,"_id":from_number,"expiretime":future_time}
+                    # try:
+                    #     templog.insert_one(tempdata)
+                    # except:
+                    #     templog.update_one({'_id': from_number}, {'$set': tempdata})
+
+                    # return old_user_send(from_number)
+                    return "ok",200
+
+                elif msg_type == 'text' and body.lower() == "hello":
+                    appointment_flow(from_number)
+                    send_selection_enroll(from_number)
+                    # send_selection(from_number)
+                    print(body.lower())
+
+                    # utc_now = datetime.now(ZoneInfo("UTC"))
+                    # future_time = utc_now + timedelta(minutes=5)
+                    # tempdata = {"number":from_number,"_id":from_number,"expiretime":future_time}
+                    # try:
+                    #     templog.insert_one(tempdata)
+                    # except:
+                    #     templog.update_one({'_id': from_number}, {'$set': tempdata})
+
+                    # return old_user_send(from_number)
+                    return "ok",200
+
+                elif msg_type == 'text' and body.lower() == "hii":
+                    appointment_flow(from_number)
+                    send_selection_enroll(from_number)
+                    # send_selection(from_number)
+                    print(body.lower())
+
+                    # utc_now = datetime.now(ZoneInfo("UTC"))
+                    # future_time = utc_now + timedelta(minutes=5)
+                    # tempdata = {"number":from_number,"_id":from_number,"expiretime":future_time}
+                    # try:
+                    #     templog.insert_one(tempdata)
+                    # except:
+                    #     templog.update_one({'_id': from_number}, {'$set': tempdata})
+
+                    # return old_user_send(from_number)
+                    return "ok",200
+
+                elif msg_type == 'text' and body.lower() == "hallo":
+                    appointment_flow(from_number)
+                    send_selection_enroll(from_number)
+                    # send_selection(from_number)
+                    print(body.lower())
+
+                    # utc_now = datetime.now(ZoneInfo("UTC"))
+                    # future_time = utc_now + timedelta(minutes=5)
+                    # tempdata = {"number":from_number,"_id":from_number,"expiretime":future_time}
+                    # try:
+                    #     templog.insert_one(tempdata)
+                    # except:
+                    #     templog.update_one({'_id': from_number}, {'$set': tempdata})
+
+                    # return old_user_send(from_number)
+                    return "ok",200
+
+                elif msg_type == 'text' and body.lower() == "hy":
+                    appointment_flow(from_number)
+                    send_selection_enroll(from_number)
+                    # send_selection(from_number)
+                    print(body.lower())
+
+                    # utc_now = datetime.now(ZoneInfo("UTC"))
+                    # future_time = utc_now + timedelta(minutes=5)
+                    # tempdata = {"number":from_number,"_id":from_number,"expiretime":future_time}
+                    # try:
+                    #     templog.insert_one(tempdata)
+                    # except:
+                    #     templog.update_one({'_id': from_number}, {'$set': tempdata})
+
+                    # return old_user_send(from_number)
+                    return "ok",200
                 elif msg_type == 'text' and body.lower() == "pdf":
                     print(body.lower())
                     today_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
@@ -2435,6 +2520,7 @@ if __name__ == "__main__":
 
 # if __name__ == "__main__":
 #     app.run(port=5001,debug=True)
+
 
 
 
