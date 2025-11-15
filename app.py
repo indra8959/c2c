@@ -591,6 +591,62 @@ def refund_report():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/get_refund_user/<string:pdate>", methods=["GET"])
+def refund_appointment_user(pdate):
+    try:
+        # api_key = request.headers.get("x-api-key")
+        # if not api_key or api_key != API_KEY:
+        #     return jsonify({"error": "Unauthorized"}), 401
+
+        # data = request.json
+        doctor_id = '67ee5e1bde4cb48c515073ee'
+
+
+        doc_id = ObjectId("67ee5e1bde4cb48c515073ee")
+        document = doctors.find_one({"_id": doc_id})
+        datas = document
+        datap = datas['date']['disabledate']
+        data_names = {item["name"] for item in datap}
+        result = pdate in data_names
+
+        if result:
+            appointmentdata = list(appointment.find(
+            {"doctor_phone_id": doctor_id, "date_of_appointment": pdate,"amount":{"$gt": 0}},
+            {"_id": 0}
+            ))
+            return jsonify(appointmentdata), 200
+
+
+        # Fetch appointment and disabled slot data
+        appointmentdata = list(appointment.find(
+            {"doctor_phone_id": doctor_id, "date_of_appointment": pdate,"amount":{"$gt": 0}},
+            {"_id": 0}
+        ))
+
+        disableslotdata = list(disableslot.find(
+            {"doctor_id": doctor_id, "date": pdate, "enable": False},
+            {"_id": 0}
+        ))
+
+
+
+
+        # Step 1: Create set of disabled time slots for fast lookup
+        disabled_slots = {slot["slot"] for slot in disableslotdata}
+
+        # Step 2: Filter appointments whose time_slot is in disabled_slots
+        refunded_appointments = [
+            appt for appt in appointmentdata if appt["time_slot"] in disabled_slots
+        ]
+
+        if not refunded_appointments:
+            return jsonify({"error": "No matching appointments found"}), 404
+
+        return jsonify(refunded_appointments), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     
 # RAZORPAY_KEY_ID = 'rzp_test_YourKeyID'
 # RAZORPAY_KEY_SECRET = 'YourSecretKey'
@@ -2559,6 +2615,7 @@ if __name__ == "__main__":
 
 # if __name__ == "__main__":
 #     app.run(port=5001,debug=True)
+
 
 
 
