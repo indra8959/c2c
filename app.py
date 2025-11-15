@@ -458,41 +458,80 @@ def add_user_query():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
     
-@app.route("/slot_disable", methods=["POST"])
-def slot_disable():
+# @app.route("/slot_disable", methods=["POST"])
+# def slot_disable():
+#     try:
+#         # api_key = request.headers.get("x-api-key")
+#         # if api_key != API_KEY:
+#         #     return jsonify({"error": "Unauthorized"}), 401
+#         data = request.json
+
+#         input_str = data.get("date")+data.get("slot")
+
+# # Extract the date and starting time
+#         date_part = input_str[:10]              # "2025-04-17"
+#         time_part = input_str[10:19].strip()    # "09:00 AM"
+
+# # Combine and parse
+#         dt = datetime.strptime(date_part + time_part, "%Y-%m-%d%I:%M %p")
+
+# # Format to "YYYYMMDDHH"
+#         formatted = dt.strftime("%Y%m%d%H")
+
+#         print(formatted)
+
+#         mdata = {
+#             "date" : data.get("date"),
+#             "slot" : data.get("slot"),
+#             "enable" : data.get("enable"),
+#             "doctor_id" : '67ee5e1bde4cb48c515073ee',
+#             "_id": formatted
+#         }
+
+#         try:
+#             disableslot.insert_one(mdata)
+#         except:
+#             disableslot.update_one({'_id': formatted}, {'$set': mdata})
+#         return jsonify({"inserted_id": str(formatted)}), 200
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 400
+
+
+@app.route("/slot_disable_k", methods=["POST"])
+def slot_disablek():
     try:
-        # api_key = request.headers.get("x-api-key")
-        # if api_key != API_KEY:
-        #     return jsonify({"error": "Unauthorized"}), 401
         data = request.json
 
-        input_str = data.get("date")+data.get("slot")
+        date = data.get("date")           # "2025-04-17"
+        slot = data.get("slot")           # "09:00 AM - 06:00 PM"
 
-# Extract the date and starting time
-        date_part = input_str[:10]              # "2025-04-17"
-        time_part = input_str[10:19].strip()    # "09:00 AM"
+        # Extract only first time before '-'
+        start_time = slot.split("-")[0].strip()   # "09:00 AM"
 
-# Combine and parse
-        dt = datetime.strptime(date_part + time_part, "%Y-%m-%d%I:%M %p")
+        # Combine date + time
+        input_str = f"{date} {start_time}"        # "2025-04-17 09:00 AM"
 
-# Format to "YYYYMMDDHH"
-        formatted = dt.strftime("%Y%m%d%H")
+        # Convert to datetime
+        dt = datetime.strptime(input_str, "%Y-%m-%d %I:%M %p")
 
-        print(formatted)
+        # Create ID
+        formatted_id = dt.strftime("%Y%m%d%H")
 
         mdata = {
-            "date" : data.get("date"),
-            "slot" : data.get("slot"),
-            "enable" : data.get("enable"),
-            "doctor_id" : '67ee5e1bde4cb48c515073ee',
-            "_id": formatted
+            "_id": formatted_id,
+            "date": date,
+            "slot": slot,
+            "enable": data.get("enable"),
+            "doctor_id": "67ee5e1bde4cb48c515073ee",
         }
 
         try:
             disableslot.insert_one(mdata)
-        except:
-            disableslot.update_one({'_id': formatted}, {'$set': mdata})
-        return jsonify({"inserted_id": str(formatted)}), 200
+        except Exception:
+            disableslot.update_one({"_id": formatted_id}, {"$set": mdata})
+
+        return jsonify({"inserted_id": formatted_id}), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 400
     
@@ -2520,6 +2559,7 @@ if __name__ == "__main__":
 
 # if __name__ == "__main__":
 #     app.run(port=5001,debug=True)
+
 
 
 
