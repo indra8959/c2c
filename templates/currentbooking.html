@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dr. Neeraj Bansal's | Patient Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #f1f5f9;
+            background-image: radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.05) 0, transparent 50%), 
+                              radial-gradient(at 50% 0%, rgba(99, 102, 241, 0.05) 0, transparent 50%);
+            -webkit-tap-highlight-color: transparent;
+            overflow-x: hidden;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .custom-shadow {
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.03), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
+        }
+
+        .notification-enter {
+            animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(-20px) scale(0.9); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        /* Time Picker Scroller Styling */
+        .time-scroller {
+            height: 120px;
+            overflow-y: auto;
+            scroll-snap-type: y mandatory;
+            scrollbar-width: none; 
+            -ms-overflow-style: none; 
+        }
+        .time-scroller::-webkit-scrollbar {
+            display: none;
+        }
+        .time-item {
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            scroll-snap-align: center;
+            font-weight: 700;
+            color: #94a3b8;
+            transition: all 0.2s;
+            font-size: 1.1rem;
+        }
+        .time-item.selected {
+            color: #059669;
+            font-size: 1.4rem;
+            transform: scale(1.1);
+        }
+
+        .fixed-badge {
+            animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .fade-in-up {
+            animation: fadeInUp 0.4s ease-out forwards;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="text-slate-900 antialiased">
+
+    <!-- Notification Container -->
+    <div id="notification-container" class="fixed top-6 left-1/2 -translate-x-1/2 md:left-auto md:right-8 md:translate-x-0 z-[100] flex flex-col gap-3 w-[90%] md:w-auto pointer-events-none"></div>
+
+    <div class="min-h-screen selection:bg-green-100 selection:text-green-900">
+        <main class="w-full">
+            <div class="p-4 md:p-10 lg:p-16 max-w-6xl mx-auto">
+                
+                <!-- Premium Branding -->
+                <div class="flex items-center justify-between gap-4 mb-12">
+                    <div class="flex items-center gap-3 md:gap-4">
+                        <div class="relative">
+                            <div class="absolute inset-0 bg-gradient-to-br from-green-500 to-blue-500 rounded-3xl blur-sm opacity-20"></div>
+                            <div class="relative bg-white p-2 md:p-3 rounded-3xl shadow-md border border-slate-100 flex items-center justify-center">
+                                <img src="https://drneerajchildcare.in/assets/im-rE7a75sp.png" alt="Dr Neeraj Logo" class="w-10 h-10 md:w-12 md:h-12 object-contain">
+                            </div>
+                        </div>
+                        <div>
+                            <span class="font-extrabold text-xl md:text-2xl tracking-tight text-slate-900 block leading-none">Dr. Neeraj Bansal's</span>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="text-[10px] md:text-xs font-bold uppercase tracking-widest text-emerald-500 block">Child Care Centre</span>
+                                <span class="text-[10px] md:text-xs font-semibold text-slate-400 border-l border-slate-200 pl-2">+91 94173-01300</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center">
+                        <button onclick="window.location.reload()" class="flex items-center gap-2 bg-white/70 backdrop-blur-md hover:bg-white text-green-600 px-4 py-2.5 md:px-5 md:py-3 rounded-2xl border border-white shadow-lg shadow-green-100/50 transition-all active:scale-90 group font-bold text-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 group-hover:rotate-180 transition-transform duration-700 ease-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+                            <span class="hidden sm:inline">Refresh Registry</span>
+                        </button>
+                    </div>
+                </div>
+
+                <header class="mb-8 text-center md:text-left">
+                    <h2 class="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">Patient Registry</h2>
+                    <p class="text-slate-500 mt-2 text-lg font-medium">Search and assign appointment numbers efficiently.</p>
+                </header>
+
+                <!-- Toggleable Time Stop Selector -->
+                <div id="stopTimeSection" class="mb-10 bg-white/40 border border-white/60 p-6 rounded-[2.5rem] flex items-center justify-center md:justify-start min-h-[100px] shadow-sm transition-all duration-300">
+                    
+                    <!-- Trigger Button -->
+                    <button id="revealTimerBtn" onclick="toggleTimerView(true)" class="flex items-center gap-3 bg-white hover:bg-slate-50 text-slate-700 px-8 py-4 rounded-2xl border border-slate-100 shadow-sm transition-all active:scale-95 font-bold group">
+                        <div class="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </div>
+                        <span id="revealTimertext">Close Current Booking</span>
+                    </button>
+
+                    <!-- Timer Interface (Hidden by default) -->
+                    <div id="timerControls" class="hidden w-full flex flex-col md:flex-row items-center gap-6 fade-in-up">
+                        <div class="flex flex-col">
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Select Stop Time</span>
+                            <div class="flex items-center gap-4 bg-white rounded-2xl p-2 shadow-inner border border-slate-100">
+                                <!-- Hour Scroller -->
+                                <div class="flex items-center">
+                                    <div id="hour-scroller" class="time-scroller w-16" onscroll="handleTimeScroll('hour')">
+    
+    <div class="time-item opacity-0"></div>
+
+    <div id="hour-list"></div>
+
+    <div class="time-item opacity-0"></div>
+
+</div>
+
+<script>
+const hourList = document.getElementById("hour-list");
+
+for (let i = 0; i < 24; i++) {
+    const val = i.toString().padStart(2, "0");
+
+    const div = document.createElement("div");
+    div.className = "time-item";
+    div.setAttribute("data-val", val);
+    div.innerText = val;
+
+    hourList.appendChild(div);
+}
+</script>
+                                    <span class="font-black text-slate-300 mx-1">:</span>
+                                    <!-- Minute Scroller -->
+                                   <div id="minute-scroller" class="time-scroller w-16" onscroll="handleTimeScroll('minute')">
+    
+    <div class="time-item opacity-0"></div>
+
+    <!-- Minutes 00 to 59 -->
+    <!-- START -->
+    <script>
+        for (let i = 0; i < 60; i++) {
+            const val = i.toString().padStart(2, '0');
+            document.write(`<div class="time-item" data-val="${val}">${val}</div>`);
+        }
+    </script>
+    <!-- END -->
+
+    <div class="time-item opacity-0"></div>
+
+</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-3 md:self-end">
+                            <button id="submitBtn" onclick="saveStopBooking()" class="h-14 px-8 rounded-2xl font-extrabold text-white bg-emerald-600 hover:bg-emerald-700 transition-all flex items-center gap-3 shadow-lg shadow-emerald-200 active:scale-95">
+                                <span id="btnText">Save Stop Time</span>
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M22 2L11 13" stroke-width="2"></path><path d="M22 2L15 22L11 13L2 9L22 2Z" stroke-width="2"></path></svg>
+                            </button>
+                            <button onclick="toggleTimerView(false)" class="h-14 w-14 flex items-center justify-center rounded-2xl bg-slate-100 text-slate-400 hover:bg-slate-200 transition-all">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter & Search Section -->
+                <div class="mb-8">
+                    <div class="glass-card rounded-3xl p-2 custom-shadow flex flex-col md:flex-row items-center gap-2 border-white/50">
+                        <div class="relative w-full">
+                            <div class="absolute inset-y-0 left-5 flex items-center pointer-events-none">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            </div>
+                            <input type="text" id="searchInput" oninput="renderPatients()" placeholder="Search patients..." class="w-full pl-14 pr-6 py-4 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-slate-900 font-bold placeholder:text-slate-400">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Patient List Content -->
+                <div id="contentArea" class="space-y-4">
+                    <div class="hidden md:block glass-card rounded-[2.5rem] custom-shadow overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50/40 border-b border-slate-100/50">
+                                    <th class="px-8 py-6 text-xs font-bold text-slate-400 uppercase tracking-widest">Patient</th>
+                                    <th class="px-8 py-6 text-xs font-bold text-slate-400 uppercase tracking-widest">Father's Name</th>
+                                    <th class="px-8 py-6 text-xs font-bold text-slate-400 uppercase tracking-widest">Contact</th>
+                                    <th class="px-8 py-6 text-xs font-bold text-slate-400 uppercase tracking-widest">Token</th>
+                                </tr>
+                            </thead>
+                            <tbody id="patientListDesktop" class="divide-y divide-slate-100/50"></tbody>
+                        </table>
+                    </div>
+                    <div id="patientListMobile" class="md:hidden space-y-4"></div>
+                    <div id="emptyState" class="hidden glass-card rounded-[2.5rem] p-16 text-center custom-shadow">
+                        <div class="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-slate-50 text-slate-300 mb-6">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                        </div>
+                        <p class="text-slate-400 font-bold text-xl">No records found</p>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="mt-10 flex flex-col md:flex-row items-center justify-between gap-6 px-4 pb-12">
+                    <div class="flex items-center gap-6 text-sm text-slate-500 font-bold uppercase tracking-wider">
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-600"></span><span>Assigned</span></div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-white border-2 border-slate-200"></span><span>Pending</span></div>
+                    </div>
+                    <div class="bg-white/60 backdrop-blur px-6 py-2.5 rounded-2xl border border-white text-sm font-bold shadow-sm">
+                        Showing: <span class="text-emerald-600 ml-1" id="totalCount">0</span> patients
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="confirmModal" class="fixed inset-0 hidden items-center justify-center bg-black/40 backdrop-blur-sm z-50 p-4">
+        <div class="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl text-center">
+            <div class="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+            <h3 class="text-xl font-extrabold text-slate-900 mb-3">Confirm Token</h3>
+            <p id="confirmText" class="text-slate-500 font-medium mb-8 leading-relaxed"></p>
+            <div class="flex gap-3">
+                <button onclick="closeConfirm()" class="flex-1 py-4 rounded-2xl font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+                <button onclick="confirmAppointment()" class="flex-1 py-4 rounded-2xl font-bold bg-emerald-600 text-white shadow-lg shadow-emerald-100">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingOverlay" class="fixed inset-0 hidden items-center justify-center bg-black/30 backdrop-blur-sm z-[60]">
+        <div class="bg-white px-8 py-6 rounded-[2rem] flex items-center gap-4 shadow-2xl">
+            <svg class="animate-spin h-6 w-6 text-emerald-600" viewBox="0 0 24 24" fill="none">
+                <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-80" fill="currentColor" d="M12 2a10 10 0 0 1 10 10h-4a6 6 0 0 0-6-6z"></path>
+            </svg>
+            <span class="font-extrabold text-slate-700">Updating...</span>
+        </div>
+    </div>
+
+    <script>
+        const USER_ID = "67ee5e1bde4cb48c515073ee";
+        const BASE_API_URL = "https://api.care2connect.in";
+        let patients = [];
+        let pendingAssign = null;
+        let submitState = "idle";
+        let submittime = "00:00";
+        let selectedHour = "18";
+        let selectedMinute = "00";
+
+        // Helper to get local date in YYYY-MM-DD
+        function getLocalDate() {
+            const d = new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // --- View Logic ---
+        function toggleTimerView(show) {
+            const btn = document.getElementById('revealTimerBtn');
+            const controls = document.getElementById('timerControls');
+            if (show) {
+                btn.classList.add('hidden');
+                controls.classList.remove('hidden');
+                setTimeout(() => {
+                    setScrollerToValue('hour', selectedHour);
+                    setScrollerToValue('minute', selectedMinute);
+                }, 50);
+            } else {
+                btn.classList.remove('hidden');
+                controls.classList.add('hidden');
+            }
+        }
+
+        // --- Time Scroller Logic ---
+        function handleTimeScroll(type) {
+            const scroller = document.getElementById(`${type}-scroller`);
+            const items = scroller.querySelectorAll('.time-item[data-val]');
+            const scrollerRect = scroller.getBoundingClientRect();
+            const scrollerCenter = scrollerRect.top + scrollerRect.height / 2;
+
+            let closest = null;
+            let minDistance = Infinity;
+
+            items.forEach(item => {
+                const itemRect = item.getBoundingClientRect();
+                const itemCenter = itemRect.top + itemRect.height / 2;
+                const distance = Math.abs(scrollerCenter - itemCenter);
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closest = item;
+                }
+                item.classList.remove('selected');
+            });
+
+            if (closest) {
+                closest.classList.add('selected');
+                if (type === 'hour') selectedHour = closest.dataset.val;
+                else selectedMinute = closest.dataset.val;
+            }
+        }
+
+        function setScrollerToValue(type, value) {
+            const scroller = document.getElementById(`${type}-scroller`);
+            const item = scroller.querySelector(`.time-item[data-val="${value}"]`);
+            if (item) {
+                scroller.scrollTop = item.offsetTop - 40; 
+                item.classList.add('selected');
+            }
+        }
+
+        // --- API & Data Logic ---
+        async function loadPatients() {
+            try {
+                const res = await fetch("https://api.care2connect.in/api/patientsx/67ee5e1bde4cb48c515073ee");
+                patients = await res.json();
+                renderPatients();
+            } catch (err) { console.error(err); }
+        }
+
+        async function loadStopTime() {
+            try {
+                const res = await fetch(`${BASE_API_URL}/get_profile/${USER_ID}/`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-api-key": "1234" }
+                });
+                const data = await res.json();
+                if (data.COPDstoptime) {
+                    const dt = data.COPDstoptime;
+                    const today = getLocalDate(); // Fix: Using local date helper
+                    console.log(data.COPDstoptime)
+                    if (dt.date === today) {
+                        const [h, m] = dt.time.split(':');
+                        selectedHour = h;
+                        selectedMinute = m;
+                        submitState = "submitted";
+                        submittime = dt.time
+                        updateButton();
+                    }
+                }
+            } catch (err) { console.error(err); }
+        }
+
+        // function updateButton() {
+        //     const btn = document.getElementById("submitBtn");
+        //     const text = document.getElementById("btnText");
+        //     const revealBtn = document.getElementById("revealTimerBtn");
+        //     const revealText = document.getElementById("revealTimertext");
+        //     if (submitState === "loading") text.innerText = "Saving...";
+        //     else if (submitState === "submitted"){ text.innerText = "Time Saved"; revealText.innerText=`The current booking will be closed at ${submittime}`; btn.disabled = true; revealBtn.disabled = true;
+        // revealBtn.classList.add("opacity-50", "cursor-not-allowed");}
+        //     else text.innerText = "Save Stop Time";
+        // }
+
+         function updateButton() {
+            const btn = document.getElementById("submitBtn");
+            const text = document.getElementById("btnText");
+            const revealBtn = document.getElementById("revealTimerBtn");
+            const revealText = document.getElementById("revealTimertext");
+            if (submitState === "loading") text.innerText = "Saving...";
+            else if (submitState === "submitted") {
+        text.innerText = "Time Saved";
+
+        const currentTime = new Date();
+
+        // submittime = "14:00"
+        const [hours, minutes] = submittime.split(":");
+        const submitDateTime = new Date();
+        submitDateTime.setHours(hours, minutes, 0, 0);
+
+        if (currentTime > submitDateTime) {
+            revealText.innerText = "Current booking is closed";
+        } else {
+            revealText.innerText = `The current booking will be closed at ${submittime}`;
+        }
+
+        btn.disabled = true;
+        revealBtn.disabled = true;
+        revealBtn.classList.add("opacity-50", "cursor-not-allowed");
+    } 
+        //     else if (submitState === "submitted"){ text.innerText = "Time Saved"; revealText.innerText=`The current booking will be closed at ${submittime}`; btn.disabled = true; revealBtn.disabled = true;
+        // revealBtn.classList.add("opacity-50", "cursor-not-allowed");}
+            else text.innerText = "Save Stop Time";
+        }
+
+        async function saveStopBooking() {
+            if (submitState === "loading") return;
+            const time = `${selectedHour}:${selectedMinute}`;
+            submitState = "loading";
+            updateButton();
+            try {
+                await fetch(`${BASE_API_URL}/v1/send-stop-booking/${USER_ID}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-api-key": "1234" },
+                    body: JSON.stringify({ 
+                        date: getLocalDate(), // Fix: Using local date helper
+                        time: time, 
+                        status: false 
+                    })
+                });
+                submitState = "submitted";
+                updateButton();
+                showNotification(`Bookings will stop at ${time}`);
+                setTimeout(() => {toggleTimerView(false);window.location.reload()}, 1500);
+            } catch (err) {
+                submitState = "idle";
+                updateButton();
+                showNotification("Failed to save", "error");
+            }
+        }
+
+        // --- UI Rendering ---
+        function renderPatients() {
+            const desktopList = document.getElementById('patientListDesktop');
+            const mobileList = document.getElementById('patientListMobile');
+            const emptyState = document.getElementById('emptyState');
+            const query = document.getElementById('searchInput').value.toLowerCase().trim();
+
+            const filtered = patients.filter(p => 
+                p.name.toLowerCase().includes(query) || 
+                p.fatherName.toLowerCase().includes(query) || 
+                p.mobile.includes(query)
+            );
+
+            document.getElementById('totalCount').textContent = filtered.length;
+            if (filtered.length === 0) {
+                desktopList.innerHTML = mobileList.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            emptyState.classList.add('hidden');
+
+            desktopList.innerHTML = filtered.map(p => `
+                <tr class="group hover:bg-white/40 transition-all">
+                    <td class="px-8 py-6">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl ${p.appointmentNo ? 'bg-emerald-600 text-white shadow-lg' : 'bg-emerald-50 text-emerald-500'} flex items-center justify-center font-extrabold">
+                                ${p.name.charAt(0)}
+                            </div>
+                            <span class="font-bold text-slate-900">${highlight(p.name, query)}</span>
+                        </div>
+                    </td>
+                    <td class="px-8 py-6 text-sm font-semibold text-slate-600">${highlight(p.fatherName, query)}</td>
+                    <td class="px-8 py-6 text-sm font-bold text-slate-800">${highlight(p.mobile, query)}</td>
+                    <td class="px-8 py-6">${renderSlot(p, 'desktop')}</td>
+                </tr>
+            `).join('');
+
+            mobileList.innerHTML = filtered.map(p => `
+                <div class="glass-card rounded-[2.5rem] p-6 custom-shadow space-y-4">
+                    <div class="flex items-center gap-4">
+                        <div class="w-14 h-14 rounded-2xl ${p.appointmentNo ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-500'} flex items-center justify-center font-black text-xl">
+                            ${p.name.charAt(0)}
+                        </div>
+                        <div>
+                            <h3 class="font-extrabold text-slate-900 text-lg leading-none">${highlight(p.name, query)}</h3>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-wide">S/O: ${highlight(p.fatherName, query)}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between py-3 border-y border-slate-100/50">
+                        <span class="text-slate-400 font-bold uppercase text-[10px]">Contact</span>
+                        <span class="font-bold text-slate-700">${highlight(p.mobile, query)}</span>
+                    </div>
+
+                    <div class="pt-2">${renderSlot(p, 'mobile')}</div>
+                </div>
+            `).join('');
+        }
+
+        function highlight(text, query) {
+            if (!query) return text;
+            return text.replace(new RegExp(`(${query})`, "gi"), `<mark class="bg-emerald-100 text-emerald-700 p-0 rounded">$1</mark>`);
+        }
+
+        function renderSlot(p, mode) {
+            if (p.appointmentNo) {
+                return `<div class="bg-emerald-700 text-white px-6 py-3 rounded-2xl font-black text-center shadow-lg italic">TOKEN #${p.appointmentNo}</div>`;
+            }
+            const inputId = `input-${mode}-${p.id}`;
+            return `
+                <div class="flex items-center gap-2">
+                    <input type="text" id="${inputId}" placeholder="Assign #" class="w-full px-5 py-4 text-lg bg-white border-2 border-slate-100 rounded-2xl focus:border-emerald-500 outline-none font-black" onkeypress="if(event.key === 'Enter') confirmAssign('${p.id}', '${p.name}', '${inputId}', '${p.mobile}')">
+                    <button onclick="confirmAssign('${p.id}', '${p.name}', '${inputId}', '${p.mobile}')" class="bg-emerald-600 text-white p-4 rounded-2xl shadow-lg active:scale-90 transition-all">
+                        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                    </button>
+                </div>
+            `;
+        }
+
+        function confirmAssign(id, name, inputId, mobile) {
+            const val = document.getElementById(inputId).value.trim();
+            if (!val) return;
+            pendingAssign = { id, name, inputId, mobile, val };
+            document.getElementById("confirmText").innerHTML = `Assign token <b>#${val}</b> to <b>${name}</b>?`;
+            document.getElementById("confirmModal").classList.replace("hidden", "flex");
+        }
+
+        function closeConfirm() { document.getElementById("confirmModal").classList.replace("flex", "hidden"); }
+
+        async function confirmAppointment() {
+            if (!pendingAssign) return;
+            closeConfirm();
+            showLoading();
+            try {
+                await fetch("https://api.care2connect.in/api/assign", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: pendingAssign.id, name: pendingAssign.name, mobile: pendingAssign.mobile, number: pendingAssign.val })
+                });
+                showNotification(`Assigned: #${pendingAssign.val}`);
+                loadPatients();
+            } catch (err) { showNotification("Error updating", "error"); }
+            finally { hideLoading(); }
+        }
+
+        function showNotification(message, type = 'success') {
+            const container = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = `glass-card border-${type === 'success' ? 'emerald' : 'rose'}-200 px-6 py-4 rounded-[2rem] shadow-2xl flex items-center gap-4 notification-enter pointer-events-auto`;
+            notification.innerHTML = `<p class="font-extrabold text-slate-900 text-sm">${message}</p>`;
+            container.appendChild(notification);
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => notification.remove(), 500);
+            }, 3000);
+        }
+
+        function showLoading() { document.getElementById("loadingOverlay").classList.replace("hidden", "flex"); }
+        function hideLoading() { document.getElementById("loadingOverlay").classList.replace("flex", "hidden"); }
+
+        window.onload = () => {
+            loadPatients();
+            loadStopTime();
+        };
+    </script>
+</body>
+</html>
