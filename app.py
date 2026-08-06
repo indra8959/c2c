@@ -105,7 +105,7 @@ def scheduled_task():
     send_pdf_utility('918128265003')
     send_pdf_utility('918968804953')
     send_pdf_utility('917087778151')
-    send_pdf_utility('918437509780')
+    send_pdf_utility('918968965882')
     # send_pdf_utility('918959690512')
 
 
@@ -811,7 +811,7 @@ def payment_deduct(status_obj):
         whatsapp_url = dr_current_success_appointment(name,fname,phone,payment_id,fee, '918128265003')
         whatsapp_url = dr_current_success_appointment(name,fname,phone,payment_id,fee, '918968804953')
         whatsapp_url = dr_current_success_appointment(name,fname,phone,payment_id,fee, '917087778151')
-        whatsapp_url = dr_current_success_appointment(name,fname,phone,payment_id,fee, '918437509780')
+        whatsapp_url = dr_current_success_appointment(name,fname,phone,payment_id,fee, '918968965882')
         whatsapp_url = dr_current_success_appointment(name,fname,phone,payment_id,fee, '918959690512')
 
     else :
