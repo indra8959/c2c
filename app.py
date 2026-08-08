@@ -2251,6 +2251,178 @@ def patient_api():
 
 
 
+
+
+@app.route("/get_appointments_x", methods=["GET"])
+def get_appointments_by_range_xxx():
+    try:
+        # -----------------------------------
+        # Query Parameters
+        # -----------------------------------
+        from_date = request.args.get("from")
+        to_date = request.args.get("to")
+        doctor_id = request.args.get("doctor_id")
+
+        # -----------------------------------
+        # Validation
+        # -----------------------------------
+        if not from_date or not to_date:
+            return jsonify({
+                "error": "Please provide both 'from' and 'to' date"
+            }), 400
+
+        if not doctor_id:
+            return jsonify({
+                "error": "Please provide 'doctor_id'"
+            }), 400
+
+        # Validate dates
+        try:
+            from_datetime = datetime.strptime(from_date, "%Y-%m-%d")
+            to_datetime = datetime.strptime(to_date, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({
+                "error": "Date format must be YYYY-MM-DD"
+            }), 400
+
+        if from_datetime > to_datetime:
+            return jsonify({
+                "error": "'from' date cannot be greater than 'to' date"
+            }), 400
+
+        # -----------------------------------
+        # 1. OPENING BALANCE
+        # -----------------------------------
+        # Selected from_date se PEHLE ke
+        # successful appointments ka total
+        opening_pipeline = [
+            {
+                "$match": {
+                    "doctor_phone_id": doctor_id,
+                    "status": "success",
+                    "date_of_appointment": {
+                        "$lt": from_date
+                    }
+                }
+            },
+            {
+                "$group": {
+                    "_id": None,
+                    "opening_balance": {
+                        "$sum": {
+                            "$convert": {
+                                "input": "$amount",
+                                "to": "double",
+                                "onError": 0,
+                                "onNull": 0
+                            }
+                        }
+                    }
+                }
+            }
+        ]
+
+        opening_result = list(
+            appointment.aggregate(opening_pipeline)
+        )
+
+        opening_balance = 0
+
+        if opening_result:
+            opening_balance = float(
+                opening_result[0].get("opening_balance", 0)
+            )
+
+        # -----------------------------------
+        # 2. CURRENT PERIOD TRANSACTIONS
+        # -----------------------------------
+        documents = list(
+            appointment.find({
+                "doctor_phone_id": doctor_id,
+                "status": "success",
+                "date_of_appointment": {
+                    "$gte": from_date,
+                    "$lte": to_date
+                }
+            }).sort([
+                ("date_of_appointment", 1),
+                ("timestamp", 1)
+            ])
+        )
+
+        # -----------------------------------
+        # 3. RUNNING BALANCE
+        # -----------------------------------
+        running_balance = opening_balance
+        transactions = []
+
+        for doc in documents:
+
+            amount = float(doc.get("amount", 0) or 0)
+
+            running_balance += amount
+
+            doc["_id"] = str(doc["_id"])
+
+            # Convert Mongo values if required
+            if "timestamp" in doc:
+                try:
+                    doc["timestamp"] = int(doc["timestamp"])
+                except:
+                    pass
+
+            doc["amount"] = amount
+
+            # Running balance
+            doc["running_balance"] = running_balance
+
+            transactions.append(doc)
+
+        # -----------------------------------
+        # 4. PERIOD TOTAL
+        # -----------------------------------
+        period_amount = sum(
+            float(doc.get("amount", 0) or 0)
+            for doc in transactions
+        )
+
+        # -----------------------------------
+        # 5. CLOSING BALANCE
+        # -----------------------------------
+        closing_balance = opening_balance + period_amount
+
+        # -----------------------------------
+        # 6. RESPONSE
+        # -----------------------------------
+        return jsonify({
+            "success": True,
+            "doctor_id": doctor_id,
+
+            "from": from_date,
+            "to": to_date,
+
+            "opening_balance": opening_balance,
+
+            "period_amount": period_amount,
+
+            "closing_balance": closing_balance,
+
+            "transaction_count": len(transactions),
+
+            "transactions": transactions
+        }), 200
+
+    except Exception as e:
+
+        print("get_appointments error:", str(e))
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+    
+
+
 @app.route("/patient_bill", methods=["GET", "POST"])
 def patient_bill_api():
     try:
