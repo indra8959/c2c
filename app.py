@@ -490,7 +490,7 @@ def webhook():
                 
                 
                 elif msg_type == 'text' and body.lower() == "list":
-                    if from_number=="916265578975" or from_number=="918128265003" or from_number=="918968804953" or from_number=="917087778151" or from_number=="916283450048" or from_number=="918959690512":
+                    if from_number=="916265578975" or from_number=="918128265003" or from_number=="918968804953" or from_number=="917087778151" or from_number=="916283450048" or from_number=="918959690512" or from_number=="918968965882":
                         cd_url(from_number)
                     return "ok",200
 
@@ -529,7 +529,7 @@ def webhook():
                 elif msg_type == 'text' and body.lower() == "pdf":
                     print(body.lower())
                     today_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
-                    if from_number=="916265578975" or from_number=="918128265003" or from_number=="918968804953" or from_number=="917087778151" or from_number=="916283450048" or from_number=="918959690512":
+                    if from_number=="916265578975" or from_number=="918128265003" or from_number=="918968804953" or from_number=="917087778151" or from_number=="916283450048" or from_number=="918959690512" or from_number=="918968965882":
                         return pdfdownload(from_number,today_date)
                     else:
                         return "ok",200
