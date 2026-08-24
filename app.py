@@ -41,6 +41,8 @@ from doctors.functions.settlement import function_settlement
 
 from doctors.functions.doctor_payble import send_doctor_vouchers_excel,report_reply
 
+from api_files.badri_computers.routes import badri_enterprises
+
 app = Flask(__name__)
 CORS(app)
 
@@ -56,6 +58,8 @@ app.register_blueprint(demo_doctor, url_prefix="/demo_doctor")
 app.register_blueprint(vivekanand, url_prefix="/vivekanand")
 app.register_blueprint(kalra_mindcare, url_prefix="/kalra_mindcare")
 app.register_blueprint(c2c_app, url_prefix="/c2c_app")
+
+app.register_blueprint(badri_enterprises, url_prefix="/badri_enterprises")
 
 app.register_blueprint(function_refund, url_prefix="/function_refund")
 app.register_blueprint(function_settlement, url_prefix="/function_settlement")
