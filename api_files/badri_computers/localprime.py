@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify,json
+from flask import Blueprint, request, jsonify, json
 from bson import ObjectId
 from werkzeug.exceptions import BadRequest
 from api_files.badri_computers.trade import db
@@ -3703,11 +3703,17 @@ def interest_posting_list():
                 "message": "Invalid date format. Use YYYY-MM-DD"
             }), 400
 
+        # Fetch all DISBURSED loans whose next_interest_date is on or before
+        # the selected date (so overdue unposted loans also appear)
         loans = loan_collection.find({
 
             "loan_status": "DISBURSED",
 
-            "next_interest_date": date
+            "$or": [
+                {"next_interest_date": {"$lte": date}},
+                {"next_interest_date": None},
+                {"next_interest_date": {"$exists": False}}
+            ]
 
         })
 
@@ -4161,14 +4167,502 @@ def generate_emi_due():
         }), 500
 
 
+# @localprime_bp.route("/customer-payment", methods=["POST"])
+# def customer_payment():
+#     try:
+#         data = request.get_json()
+
+#         if not data:
+#             return jsonify({
+                
+#                 "success": False,
+#                 "message": "Invalid request"
+#             }), 400
+
+#         loan_number = data.get("loan_number")
+#         emi_number = data.get("emi_number")
+
+#         try:
+#             payment_amount = float(
+#                 data.get("payment_amount", 0)
+#             )
+#         except:
+#             payment_amount = 0
+
+#         payment_mode = data.get("payment_mode")
+
+#         if not loan_number or emi_number is None:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "loan_number and emi_number are required"
+#             }), 400
+
+#         if payment_amount <= 0:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Invalid payment amount"
+#             }), 400
+
+#         if payment_mode not in ["Bank", "Cash"]:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "payment_mode must be Bank or Cash"
+#             }), 400
+
+#         loan = loan_collection.find_one({
+#             "loan_number": loan_number
+#         })
+
+#         if not loan:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Loan not found"
+#             }), 404
+
+#         if loan.get("loan_status") == "CLOSED":
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Loan already closed"
+#             }), 400
+
+#         emi = emi_due_collection.find_one({
+#             "loan_number": loan_number,
+#             "emi_number": emi_number
+#         })
+
+#         if not emi:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "EMI not found"
+#             }), 404
+
+#         if emi.get("status") == "PAID":
+#             return jsonify({
+#                 "success": False,
+#                 "message": "EMI already paid"
+#             }), 400
+
+#         # -------------------------------------------------
+#         # Amounts Due
+#         # -------------------------------------------------
+
+#         interest_due = float(
+#             emi.get("interest_due", 0)
+#         )
+
+#         principal_due = float(
+#             emi.get("principal_due", 0)
+#         )
+
+#         penalty_due = float(
+#             loan.get("penalty_outstanding", 0)
+#         )
+
+#         balance = payment_amount
+
+#         # -------------------------------------------------
+#         # Payment Allocation
+#         # Penalty -> Interest -> Principal
+#         # -------------------------------------------------
+
+#         penalty_paid = min(
+#             balance,
+#             penalty_due
+#         )
+
+#         balance -= penalty_paid
+
+#         interest_paid = min(
+#             balance,
+#             interest_due
+#         )
+
+#         balance -= interest_paid
+
+#         principal_paid = min(
+#             balance,
+#             principal_due
+#         )
+
+#         balance -= principal_paid
+
+#         # -------------------------------------------------
+#         # Prevent Excess Payment
+#         # -------------------------------------------------
+
+#         if balance > 0:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Payment amount exceeds the total amount due",
+#                 "excess_amount": round(balance, 2)
+#             }), 400
+
+#         # -------------------------------------------------
+#         # New Loan Outstanding
+#         # -------------------------------------------------
+
+#         new_principal = round(
+#             float(
+#                 loan.get(
+#                     "outstanding_principal",
+#                     0
+#                 )
+#             ) - principal_paid,
+#             2
+#         )
+
+#         new_interest = round(
+#             float(
+#                 loan.get(
+#                     "interest_outstanding",
+#                     0
+#                 )
+#             ) - interest_paid,
+#             2
+#         )
+
+#         new_penalty = round(
+#             penalty_due - penalty_paid,
+#             2
+#         )
+
+#         new_principal = max(
+#             new_principal,
+#             0
+#         )
+
+#         new_interest = max(
+#             new_interest,
+#             0
+#         )
+
+#         new_penalty = max(
+#             new_penalty,
+#             0
+#         )
+
+#         # -------------------------------------------------
+#         # Ledger IDs
+#         # Change these manually
+#         # -------------------------------------------------
+
+#         if payment_mode == "Bank":
+#             PAYMENT_LEDGER_ID = "BANK"
+#             PAYMENT_LEDGER_NAME = "Bank"
+#         else:
+#             PAYMENT_LEDGER_ID = "CASH"
+#             PAYMENT_LEDGER_NAME = "Cash"
+
+#         CONSUMER_LOAN_LEDGER_ID = "A1"
+#         CONSUMER_LOAN_LEDGER_NAME = "Consumer Loan"
+
+#         INTEREST_RECEIVABLE_LEDGER_ID = "INTEREST_RECEIVABLE"
+#         INTEREST_RECEIVABLE_LEDGER_NAME = "Interest Receivable"
+
+#         PENALTY_INCOME_LEDGER_ID = "PENALTY_INCOME"
+#         PENALTY_INCOME_LEDGER_NAME = "Penalty Income"
+
+#         # -------------------------------------------------
+#         # Voucher Entries
+#         # -------------------------------------------------
+
+#         voucher_entries = [
+#             {
+#                 "ledger_id": PAYMENT_LEDGER_ID,
+#                 "ledger_name": PAYMENT_LEDGER_NAME,
+#                 "narration": f"Loan payment received - {loan_number}",
+#                 "debit": payment_amount,
+#                 "credit": 0
+#             }
+#         ]
+
+#         if principal_paid > 0:
+#             voucher_entries.append({
+#                 "ledger_id": CONSUMER_LOAN_LEDGER_ID,
+#                 "ledger_name": CONSUMER_LOAN_LEDGER_NAME,
+#                 "narration": f"Principal received - {loan_number}",
+#                 "debit": 0,
+#                 "credit": round(principal_paid, 2)
+#             })
+
+#         if interest_paid > 0:
+#             voucher_entries.append({
+#                 "ledger_id": INTEREST_RECEIVABLE_LEDGER_ID,
+#                 "ledger_name": INTEREST_RECEIVABLE_LEDGER_NAME,
+#                 "narration": f"Interest received - {loan_number}",
+#                 "debit": 0,
+#                 "credit": round(interest_paid, 2)
+#             })
+
+#         if penalty_paid > 0:
+#             voucher_entries.append({
+#                 "ledger_id": PENALTY_INCOME_LEDGER_ID,
+#                 "ledger_name": PENALTY_INCOME_LEDGER_NAME,
+#                 "narration": f"Penalty received - {loan_number}",
+#                 "debit": 0,
+#                 "credit": round(penalty_paid, 2)
+#             })
+
+#         # -------------------------------------------------
+#         # Create Receipt Voucher
+#         # -------------------------------------------------
+
+#         voucher = create_voucher(
+#             voucher_type="Receipt",
+#             voucher_mode=payment_mode,
+#             narration=f"Customer payment - {loan_number}, EMI {emi_number}",
+#             entries=voucher_entries,
+#             amount=payment_amount,
+#             created_by=data.get(
+#                 "created_by",
+#                 "admin"
+#             ),
+#             from_id=data.get(
+#                 "created_by",
+#                 "admin"
+#             )
+#         )
+
+#         # -------------------------------------------------
+#         # Update Loan
+#         # -------------------------------------------------
+
+#         loan_collection.update_one(
+#             {
+#                 "_id": loan["_id"]
+#             },
+#             {
+#                 "$set": {
+#                     "outstanding_principal": max(new_principal, 0),
+#                     "interest_outstanding": max(new_interest, 0),
+#                     "penalty_outstanding": max(new_penalty, 0),
+#                     "updated_at": datetime.utcnow()
+#                 }
+#             }
+#         )
+
+#         # -------------------------------------------------
+#         # EMI Status
+#         # -------------------------------------------------
+
+#         total_due = (
+#             principal_due +
+#             interest_due
+#         )
+
+#         paid_amount = (
+#             principal_paid +
+#             interest_paid
+#         )
+
+#         emi_status = "PAID"
+
+#         if paid_amount < total_due:
+#             emi_status = "PARTIAL"
+
+#         emi_due_collection.update_one(
+#             {
+#                 "_id": emi["_id"]
+#             },
+#             {
+#                 "$set": {
+#                     "status": emi_status,
+#                     "paid_date": data.get(
+#                         "payment_date"
+#                     ),
+#                     "principal_paid": principal_paid,
+#                     "interest_paid": interest_paid,
+#                     "penalty_paid": penalty_paid,
+#                     "payment_amount": payment_amount,
+#                     "voucher_id": voucher["_id"],
+#                     "voucher_number": voucher["voucher_number"],
+#                     "updated_at": datetime.utcnow()
+#                 }
+#             }
+#         )
+
+#         # -------------------------------------------------
+#         # Mark interest_collection records as PAID
+#         # when interest is fully collected
+#         # -------------------------------------------------
+
+#         if interest_paid > 0:
+#             interest_collection.update_many(
+#                 {
+#                     "loan_number": loan_number,
+#                     "status": "UNPAID"
+#                 },
+#                 {
+#                     "$set": {
+#                         "status": "PAID",
+#                         "paid_date": data.get("payment_date"),
+#                         "updated_at": datetime.utcnow()
+#                     }
+#                 }
+#             )
+
+#         # -------------------------------------------------
+#         # Payment History
+#         # -------------------------------------------------
+
+#         payment_collection.insert_one({
+#             "loan_id": loan["_id"],
+#             "loan_number": loan_number,
+#             "emi_number": emi_number,
+#             "customer_id": loan["customer_id"],
+#             "payment_date": data.get(
+#                 "payment_date"
+#             ),
+#             "payment_amount": payment_amount,
+#             "principal_paid": principal_paid,
+#             "interest_paid": interest_paid,
+#             "penalty_paid": penalty_paid,
+#             "payment_mode": payment_mode,
+#             "transaction_id": data.get(
+#                 "transaction_id"
+#             ),
+#             "voucher_id": voucher["_id"],
+#             "voucher_number": voucher["voucher_number"],
+#             "created_at": datetime.utcnow()
+#         })
+
+#         # -------------------------------------------------
+#         # Auto Loan Closure
+#         # -------------------------------------------------
+
+#         unpaid_emi_count = emi_due_collection.count_documents({
+#             "loan_number": loan_number,
+#             "status": {"$in": ["UNPAID", "PARTIAL"]}
+#         })
+
+#         loan_closed = (
+#             new_principal == 0 and
+#             new_interest == 0 and
+#             new_penalty == 0 and
+#             unpaid_emi_count == 0
+#         )
+
+#         if loan_closed:
+#             loan_collection.update_one(
+#                 {
+#                     "_id": loan["_id"]
+#                 },
+#                 {
+#                     "$set": {
+#                         "loan_status": "CLOSED",
+#                         "closure_date": datetime.utcnow().strftime(
+#                             "%Y-%m-%d"
+#                         ),
+#                         "updated_at": datetime.utcnow()
+#                     }
+#                 }
+#             )
+
+#         # -------------------------------------------------
+#         # Response
+#         # -------------------------------------------------
+
+#         return jsonify({
+#             "success": True,
+#             "message": "Payment received successfully",
+#             "loan_number": loan_number,
+#             "emi_number": emi_number,
+#             "payment_amount": payment_amount,
+#             "principal_paid": round(
+#                 principal_paid,
+#                 2
+#             ),
+#             "interest_paid": round(
+#                 interest_paid,
+#                 2
+#             ),
+#             "penalty_paid": round(
+#                 penalty_paid,
+#                 2
+#             ),
+#             "remaining_principal": new_principal,
+#             "remaining_interest": new_interest,
+#             "remaining_penalty": new_penalty,
+#             "emi_status": emi_status,
+#             "loan_status": "CLOSED" if loan_closed else "DISBURSED",
+#             "voucher_id": voucher["_id"],
+#             "voucher_number": voucher["voucher_number"]
+#         }), 200
+
+#     except Exception as e:
+#         return jsonify({
+#             "success": False,
+#             "message": str(e)
+#         }), 500
+
+# =========================================================
+# CUSTOMER PAYMENT
+# =========================================================
+# =========================================================
+# CUSTOMER PAYMENT
+# TOTAL PAYMENT SUPPORT
+# ALLOCATION:
+# PENALTY -> INTEREST -> PRINCIPAL
+# FIFO EMI WISE
+# =========================================================
+
+# =========================================================
+# CUSTOMER PAYMENT
+# FULL / TOTAL PAYMENT
+#
+# Allocation:
+# PENALTY -> INTEREST -> PRINCIPAL
+# EMI 1 -> EMI 2 -> EMI 3 -> ...
+# =========================================================
+# =========================================================
+# CUSTOMER PAYMENT
+# =========================================================
+# PAYMENT ALLOCATION:
+#
+# EMI 1 -> EMI 2 -> EMI 3 -> ...
+#
+# Within each EMI:
+#     PENALTY -> INTEREST -> PRINCIPAL
+#
+# IMPORTANT:
+# Do NOT depend on EMI status for outstanding calculation.
+# Actual outstanding is calculated from:
+#     principal_due - principal_paid
+#     interest_due  - interest_paid
+#     penalty_due   - penalty_paid
+# =========================================================
+
+# =========================================================
+# CUSTOMER PAYMENT
+# FINAL VERSION
+#
+# FIFO:
+# EMI 1 -> EMI 2 -> EMI 3 -> ...
+#
+# Allocation:
+# PENALTY -> INTEREST -> PRINCIPAL
+#
+# IMPORTANT:
+# - Status field par depend nahi karta
+# - Actual outstanding calculate karta hai
+# - Fully paid EMI par penalty nahi lagata
+# - Excess payment mutation se pehle check karta hai
+# - Penalty real-time current date se calculate hoti hai
+# =========================================================
+
 @localprime_bp.route("/customer-payment", methods=["POST"])
 def customer_payment():
+
     try:
-        data = request.get_json()
+
+        # =====================================================
+        # REQUEST DATA
+        # =====================================================
+
+        data = request.get_json(silent=True) or {}
 
         if not data:
             return jsonify({
-                
                 "success": False,
                 "message": "Invalid request"
             }), 400
@@ -4176,25 +4670,37 @@ def customer_payment():
         loan_number = data.get("loan_number")
         emi_number = data.get("emi_number")
 
-        try:
-            payment_amount = float(
-                data.get("payment_amount", 0)
-            )
-        except:
-            payment_amount = 0
-
         payment_mode = data.get("payment_mode")
+        payment_date = data.get("payment_date")
+        transaction_id = data.get("transaction_id")
+        created_by = data.get("created_by", "admin")
 
-        if not loan_number or emi_number is None:
+        # =====================================================
+        # PAYMENT AMOUNT
+        # =====================================================
+
+        try:
+            payment_amount = round(
+                float(data.get("payment_amount", 0)),
+                2
+            )
+        except Exception:
+            payment_amount = 0.0
+
+        # =====================================================
+        # VALIDATION
+        # =====================================================
+
+        if not loan_number:
             return jsonify({
                 "success": False,
-                "message": "loan_number and emi_number are required"
+                "message": "loan_number is required"
             }), 400
 
         if payment_amount <= 0:
             return jsonify({
                 "success": False,
-                "message": "Invalid payment amount"
+                "message": "Payment amount must be greater than 0"
             }), 400
 
         if payment_mode not in ["Bank", "Cash"]:
@@ -4203,390 +4709,1681 @@ def customer_payment():
                 "message": "payment_mode must be Bank or Cash"
             }), 400
 
+        # =====================================================
+        # PAYMENT DATE
+        # =====================================================
+
+        if payment_date:
+
+            try:
+                payment_date_obj = datetime.strptime(
+                    str(payment_date),
+                    "%Y-%m-%d"
+                ).date()
+
+                payment_date = payment_date_obj.strftime(
+                    "%Y-%m-%d"
+                )
+
+            except Exception:
+
+                return jsonify({
+                    "success": False,
+                    "message": "payment_date format should be YYYY-MM-DD"
+                }), 400
+
+        else:
+
+            payment_date = datetime.now().strftime(
+                "%Y-%m-%d"
+            )
+
+        # =====================================================
+        # FIND LOAN
+        # =====================================================
+
         loan = loan_collection.find_one({
             "loan_number": loan_number
         })
 
         if not loan:
+
             return jsonify({
                 "success": False,
                 "message": "Loan not found"
             }), 404
 
+        # =====================================================
+        # LOAN STATUS
+        # =====================================================
+
         if loan.get("loan_status") == "CLOSED":
+
             return jsonify({
                 "success": False,
                 "message": "Loan already closed"
             }), 400
 
-        emi = emi_due_collection.find_one({
-            "loan_number": loan_number,
-            "emi_number": emi_number
-        })
+        # =====================================================
+        # CURRENT DATE
+        #
+        # REAL-TIME PENALTY
+        # =====================================================
 
-        if not emi:
+        today_date = datetime.now().date()
+
+        # =====================================================
+        # PENALTY RATE
+        #
+        # Current business rule:
+        # 5% per day of EMI installment
+        # =====================================================
+
+        penalty_rate = 5.0
+
+        # =====================================================
+        # GET ALL EMIs
+        #
+        # IMPORTANT:
+        # DO NOT FILTER BY STATUS
+        #
+        # Because status can be stale.
+        # Actual balance is calculated below.
+        # =====================================================
+
+        emis = list(
+            emi_due_collection.find({
+                "loan_number": loan_number
+            }).sort(
+                "emi_number",
+                1
+            )
+        )
+
+        if not emis:
+
             return jsonify({
                 "success": False,
-                "message": "EMI not found"
-            }), 404
-
-        if emi.get("status") == "PAID":
-            return jsonify({
-                "success": False,
-                "message": "EMI already paid"
+                "message": "No EMI schedule found for this loan"
             }), 400
 
-        # -------------------------------------------------
-        # Amounts Due
-        # -------------------------------------------------
+        # =====================================================
+        # FIRST PASS
+        #
+        # Calculate actual outstanding
+        # and payment allocation in memory.
+        #
+        # NO DATABASE UPDATE HERE.
+        # =====================================================
 
-        interest_due = float(
-            emi.get("interest_due", 0)
+        remaining_payment = round(
+            payment_amount,
+            2
         )
 
-        principal_due = float(
-            emi.get("principal_due", 0)
+        total_penalty_paid = 0.0
+        total_interest_paid = 0.0
+        total_principal_paid = 0.0
+
+        allocations = []
+
+        total_actual_outstanding = 0.0
+
+        # =====================================================
+        # PROCESS EMIs FIFO
+        # =====================================================
+
+        for emi in emis:
+
+            # -------------------------------------------------
+            # OLD PAID VALUES
+            # -------------------------------------------------
+
+            old_principal_paid = round(
+                float(
+                    emi.get(
+                        "principal_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            old_interest_paid = round(
+                float(
+                    emi.get(
+                        "interest_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            old_penalty_paid = round(
+                float(
+                    emi.get(
+                        "penalty_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            # -------------------------------------------------
+            # EMI DUE
+            # -------------------------------------------------
+
+            principal_due = round(
+                float(
+                    emi.get(
+                        "principal_due",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            interest_due = round(
+                float(
+                    emi.get(
+                        "interest_due",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            installment = round(
+                float(
+                    emi.get(
+                        "installment",
+                        principal_due + interest_due
+                    ) or 0
+                ),
+                2
+            )
+
+            # -------------------------------------------------
+            # BASE OUTSTANDING
+            #
+            # Principal + Interest only
+            # -------------------------------------------------
+
+            remaining_principal_before = round(
+                max(
+                    principal_due -
+                    old_principal_paid,
+                    0
+                ),
+                2
+            )
+
+            remaining_interest_before = round(
+                max(
+                    interest_due -
+                    old_interest_paid,
+                    0
+                ),
+                2
+            )
+
+            base_outstanding = round(
+                remaining_principal_before +
+                remaining_interest_before,
+                2
+            )
+
+            # -------------------------------------------------
+            # DUE DATE
+            # -------------------------------------------------
+
+            due_date_value = emi.get(
+                "due_date"
+            )
+
+            delay_days = 0
+            penalty_due = 0.0
+
+            if due_date_value:
+
+                try:
+
+                    due_date = datetime.strptime(
+                        str(due_date_value),
+                        "%Y-%m-%d"
+                    ).date()
+
+                    delay_days = max(
+                        (
+                            today_date -
+                            due_date
+                        ).days,
+                        0
+                    )
+
+                except Exception:
+
+                    delay_days = 0
+
+            # -------------------------------------------------
+            # IMPORTANT PENALTY FIX
+            #
+            # If principal + interest are already fully paid,
+            # DO NOT generate new penalty.
+            # -------------------------------------------------
+
+            if (
+                base_outstanding > 0
+                and delay_days > 0
+            ):
+
+                penalty_due = round(
+                    installment *
+                    penalty_rate /
+                    100 *
+                    delay_days,
+                    2
+                )
+
+            else:
+
+                penalty_due = 0.0
+                delay_days = 0
+
+            # -------------------------------------------------
+            # REMAINING PENALTY
+            # -------------------------------------------------
+
+            remaining_penalty_before = round(
+                max(
+                    penalty_due -
+                    old_penalty_paid,
+                    0
+                ),
+                2
+            )
+
+            # -------------------------------------------------
+            # ACTUAL EMI OUTSTANDING
+            # -------------------------------------------------
+
+            emi_outstanding = round(
+                remaining_penalty_before +
+                remaining_interest_before +
+                remaining_principal_before,
+                2
+            )
+
+            # -------------------------------------------------
+            # TOTAL OUTSTANDING
+            # -------------------------------------------------
+
+            total_actual_outstanding = round(
+                total_actual_outstanding +
+                emi_outstanding,
+                2
+            )
+
+            # -------------------------------------------------
+            # ALLOCATION VARIABLES
+            # -------------------------------------------------
+
+            emi_penalty_paid = 0.0
+            emi_interest_paid = 0.0
+            emi_principal_paid = 0.0
+
+            payment_before_emi = remaining_payment
+
+            # =================================================
+            # 1. PENALTY
+            # =================================================
+
+            if (
+                remaining_payment > 0
+                and remaining_penalty_before > 0
+            ):
+
+                emi_penalty_paid = round(
+                    min(
+                        remaining_payment,
+                        remaining_penalty_before
+                    ),
+                    2
+                )
+
+                remaining_payment = round(
+                    remaining_payment -
+                    emi_penalty_paid,
+                    2
+                )
+
+            # =================================================
+            # 2. INTEREST
+            # =================================================
+
+            if (
+                remaining_payment > 0
+                and remaining_interest_before > 0
+            ):
+
+                emi_interest_paid = round(
+                    min(
+                        remaining_payment,
+                        remaining_interest_before
+                    ),
+                    2
+                )
+
+                remaining_payment = round(
+                    remaining_payment -
+                    emi_interest_paid,
+                    2
+                )
+
+            # =================================================
+            # 3. PRINCIPAL
+            # =================================================
+
+            if (
+                remaining_payment > 0
+                and remaining_principal_before > 0
+            ):
+
+                emi_principal_paid = round(
+                    min(
+                        remaining_payment,
+                        remaining_principal_before
+                    ),
+                    2
+                )
+
+                remaining_payment = round(
+                    remaining_payment -
+                    emi_principal_paid,
+                    2
+                )
+
+            # =================================================
+            # TOTALS
+            # =================================================
+
+            total_penalty_paid = round(
+                total_penalty_paid +
+                emi_penalty_paid,
+                2
+            )
+
+            total_interest_paid = round(
+                total_interest_paid +
+                emi_interest_paid,
+                2
+            )
+
+            total_principal_paid = round(
+                total_principal_paid +
+                emi_principal_paid,
+                2
+            )
+
+            # =================================================
+            # NEW CUMULATIVE PAID
+            # =================================================
+
+            new_penalty_paid = round(
+                old_penalty_paid +
+                emi_penalty_paid,
+                2
+            )
+
+            new_interest_paid = round(
+                old_interest_paid +
+                emi_interest_paid,
+                2
+            )
+
+            new_principal_paid = round(
+                old_principal_paid +
+                emi_principal_paid,
+                2
+            )
+
+            # =================================================
+            # NEW REMAINING COMPONENTS
+            # =================================================
+
+            new_remaining_penalty = round(
+                max(
+                    penalty_due -
+                    new_penalty_paid,
+                    0
+                ),
+                2
+            )
+
+            new_remaining_interest = round(
+                max(
+                    interest_due -
+                    new_interest_paid,
+                    0
+                ),
+                2
+            )
+
+            new_remaining_principal = round(
+                max(
+                    principal_due -
+                    new_principal_paid,
+                    0
+                ),
+                2
+            )
+
+            # =================================================
+            # EMI TOTAL
+            # =================================================
+
+            emi_total_due = round(
+                principal_due +
+                interest_due +
+                penalty_due,
+                2
+            )
+
+            emi_total_paid = round(
+                new_principal_paid +
+                new_interest_paid +
+                new_penalty_paid,
+                2
+            )
+
+            emi_pending_amount = round(
+                max(
+                    emi_total_due -
+                    emi_total_paid,
+                    0
+                ),
+                2
+            )
+
+            # =================================================
+            # STATUS
+            # =================================================
+
+            if emi_pending_amount <= 0:
+
+                emi_status = "PAID"
+
+            elif emi_total_paid > 0:
+
+                emi_status = "PARTIAL"
+
+            else:
+
+                if delay_days > 0:
+
+                    emi_status = "OVERDUE"
+
+                else:
+
+                    emi_status = "UNPAID"
+
+            # =================================================
+            # ADD ALLOCATION ONLY IF PAYMENT WAS MADE
+            # =================================================
+
+            emi_payment_allocated = round(
+                emi_penalty_paid +
+                emi_interest_paid +
+                emi_principal_paid,
+                2
+            )
+
+            if emi_payment_allocated > 0:
+
+                allocations.append({
+
+                    "emi_number":
+                        emi.get("emi_number"),
+
+                    "due_date":
+                        due_date_value,
+
+                    "installment":
+                        installment,
+
+                    "principal_due":
+                        principal_due,
+
+                    "interest_due":
+                        interest_due,
+
+                    "penalty_due":
+                        penalty_due,
+
+                    "delay_days":
+                        delay_days,
+
+                    "penalty_rate":
+                        penalty_rate,
+
+                    "old_principal_paid":
+                        old_principal_paid,
+
+                    "old_interest_paid":
+                        old_interest_paid,
+
+                    "old_penalty_paid":
+                        old_penalty_paid,
+
+                    "principal_paid":
+                        emi_principal_paid,
+
+                    "interest_paid":
+                        emi_interest_paid,
+
+                    "penalty_paid":
+                        emi_penalty_paid,
+
+                    "total_paid":
+                        emi_payment_allocated,
+
+                    "remaining_principal":
+                        new_remaining_principal,
+
+                    "remaining_interest":
+                        new_remaining_interest,
+
+                    "remaining_penalty":
+                        new_remaining_penalty,
+
+                    "pending_amount":
+                        emi_pending_amount,
+
+                    "emi_status":
+                        emi_status
+                })
+
+        # =====================================================
+        # FINAL REMAINING PAYMENT
+        # =====================================================
+
+        remaining_payment = round(
+            remaining_payment,
+            2
         )
 
-        penalty_due = float(
-            loan.get("penalty_outstanding", 0)
-        )
+        # =====================================================
+        # AUTO-ABSORB EXCESS AS PENALTY
+        # =====================================================
+        if remaining_payment > 0.01 and allocations:
+            excess = remaining_payment
+            allocations[-1]["penalty_paid"] = round(allocations[-1]["penalty_paid"] + excess, 2)
+            allocations[-1]["total_paid"] = round(allocations[-1]["total_paid"] + excess, 2)
+            total_penalty_paid = round(total_penalty_paid + excess, 2)
+            remaining_payment = 0.0
 
-        balance = payment_amount
+        # =====================================================
+        # IMPORTANT:
+        # If payment > TOTAL ACTUAL OUTSTANDING
+        # DO NOT UPDATE DATABASE.
+        # =====================================================
 
-        # -------------------------------------------------
-        # Payment Allocation
-        # Penalty -> Interest -> Principal
-        # -------------------------------------------------
+        if remaining_payment > 0.01:
 
-        penalty_paid = min(
-            balance,
-            penalty_due
-        )
-
-        balance -= penalty_paid
-
-        interest_paid = min(
-            balance,
-            interest_due
-        )
-
-        balance -= interest_paid
-
-        principal_paid = min(
-            balance,
-            principal_due
-        )
-
-        balance -= principal_paid
-
-        # -------------------------------------------------
-        # Prevent Excess Payment
-        # -------------------------------------------------
-
-        if balance > 0:
             return jsonify({
+
                 "success": False,
-                "message": "Payment amount exceeds the total amount due",
-                "excess_amount": round(balance, 2)
+
+                "message":
+                    "Payment amount exceeds total outstanding amount",
+
+                "loan_number":
+                    loan_number,
+
+                "payment_amount":
+                    payment_amount,
+
+                "total_outstanding":
+                    round(
+                        total_actual_outstanding,
+                        2
+                    ),
+
+                "allocated_amount":
+                    round(
+                        payment_amount -
+                        remaining_payment,
+                        2
+                    ),
+
+                "excess_amount":
+                    remaining_payment,
+
+                "penalty_due":
+                    round(
+                        total_penalty_paid,
+                        2
+                    ),
+
+                "interest_due":
+                    round(
+                        total_interest_paid,
+                        2
+                    ),
+
+                "principal_due":
+                    round(
+                        total_principal_paid,
+                        2
+                    ),
+
+                "allocations":
+                    allocations
+
             }), 400
 
-        # -------------------------------------------------
-        # New Loan Outstanding
-        # -------------------------------------------------
+        # =====================================================
+        # ACCOUNTING TOTAL CHECK
+        # =====================================================
 
-        new_principal = round(
-            float(
-                loan.get(
-                    "outstanding_principal",
+        total_allocated = round(
+            total_penalty_paid +
+            total_interest_paid +
+            total_principal_paid,
+            2
+        )
+
+        if abs(
+            total_allocated -
+            payment_amount
+        ) > 0.01:
+
+            return jsonify({
+
+                "success": False,
+
+                "message":
+                    "Payment allocation mismatch",
+
+                "payment_amount":
+                    payment_amount,
+
+                "total_allocated":
+                    total_allocated,
+
+                "difference":
+                    round(
+                        payment_amount -
+                        total_allocated,
+                        2
+                    )
+
+            }), 400
+
+        # =====================================================
+        # NEW LOAN OUTSTANDING
+        #
+        # CORRECT APPROACH:
+        # Subtract this payment from the loan's current
+        # outstanding_principal and interest_outstanding.
+        #
+        # The EMI-sum approach FAILS when EMIs are generated
+        # one-at-a-time (future EMIs don't exist in DB yet).
+        # =====================================================
+
+        old_loan_principal = round(
+            float(loan.get("outstanding_principal", 0) or 0),
+            2
+        )
+
+        old_loan_interest = round(
+            float(loan.get("interest_outstanding", 0) or 0),
+            2
+        )
+
+        new_loan_principal = round(
+            max(old_loan_principal - total_principal_paid, 0),
+            2
+        )
+
+        new_loan_interest = round(
+            max(old_loan_interest - total_interest_paid, 0),
+            2
+        )
+
+
+        # =====================================================
+        # CURRENT PENALTY AFTER PAYMENT
+        #
+        # Calculate from every EMI.
+        # =====================================================
+
+        current_total_penalty = 0.0
+
+        for emi in emis:
+
+            principal_due = float(
+                emi.get(
+                    "principal_due",
                     0
-                )
-            ) - principal_paid,
-            2
-        )
+                ) or 0
+            )
 
-        new_interest = round(
-            float(
-                loan.get(
-                    "interest_outstanding",
+            interest_due = float(
+                emi.get(
+                    "interest_due",
                     0
+                ) or 0
+            )
+
+            installment = float(
+                emi.get(
+                    "installment",
+                    principal_due +
+                    interest_due
+                ) or 0
+            )
+
+            old_principal_paid = float(
+                emi.get(
+                    "principal_paid",
+                    0
+                ) or 0
+            )
+
+            old_interest_paid = float(
+                emi.get(
+                    "interest_paid",
+                    0
+                ) or 0
+            )
+
+            old_penalty_paid = float(
+                emi.get(
+                    "penalty_paid",
+                    0
+                ) or 0
+            )
+
+            base_outstanding = round(
+                max(
+                    principal_due -
+                    old_principal_paid,
+                    0
+                ) +
+                max(
+                    interest_due -
+                    old_interest_paid,
+                    0
+                ),
+                2
+            )
+
+            due_date_value = emi.get(
+                "due_date"
+            )
+
+            delay_days = 0
+
+            if due_date_value:
+
+                try:
+
+                    due_date = datetime.strptime(
+                        str(due_date_value),
+                        "%Y-%m-%d"
+                    ).date()
+
+                    delay_days = max(
+                        (
+                            today_date -
+                            due_date
+                        ).days,
+                        0
+                    )
+
+                except Exception:
+
+                    delay_days = 0
+
+            if (
+                base_outstanding > 0
+                and delay_days > 0
+            ):
+
+                calculated_penalty = round(
+                    installment *
+                    penalty_rate /
+                    100 *
+                    delay_days,
+                    2
                 )
-            ) - interest_paid,
+
+                remaining_penalty = round(
+                    max(
+                        calculated_penalty -
+                        old_penalty_paid,
+                        0
+                    ),
+                    2
+                )
+
+                current_total_penalty = round(
+                    current_total_penalty +
+                    remaining_penalty,
+                    2
+                )
+
+        # =====================================================
+        # IMPORTANT:
+        # Current penalty after this payment must also
+        # subtract this payment's penalty allocation.
+        # =====================================================
+
+        new_loan_penalty = round(
+            max(
+                current_total_penalty -
+                total_penalty_paid,
+                0
+            ),
             2
         )
 
-        new_penalty = round(
-            penalty_due - penalty_paid,
+        # =====================================================
+        # LOAN TOTAL OUTSTANDING
+        # =====================================================
+
+        new_total_outstanding = round(
+            new_loan_principal +
+            new_loan_interest +
+            new_loan_penalty,
             2
         )
 
-        new_principal = max(
-            new_principal,
-            0
-        )
-
-        new_interest = max(
-            new_interest,
-            0
-        )
-
-        new_penalty = max(
-            new_penalty,
-            0
-        )
-
-        # -------------------------------------------------
-        # Ledger IDs
-        # Change these manually
-        # -------------------------------------------------
+        # =====================================================
+        # LEDGER DETAILS
+        # =====================================================
 
         if payment_mode == "Bank":
-            PAYMENT_LEDGER_ID = "BANK"
-            PAYMENT_LEDGER_NAME = "Bank"
+
+            payment_ledger_id = "BANK"
+            payment_ledger_name = "Bank"
+
         else:
-            PAYMENT_LEDGER_ID = "CASH"
-            PAYMENT_LEDGER_NAME = "Cash"
+
+            payment_ledger_id = "CASH"
+            payment_ledger_name = "Cash"
 
         CONSUMER_LOAN_LEDGER_ID = "A1"
         CONSUMER_LOAN_LEDGER_NAME = "Consumer Loan"
 
-        INTEREST_RECEIVABLE_LEDGER_ID = "INTEREST_RECEIVABLE"
-        INTEREST_RECEIVABLE_LEDGER_NAME = "Interest Receivable"
+        INTEREST_RECEIVABLE_LEDGER_ID = \
+            "INTEREST_RECEIVABLE"
 
-        PENALTY_INCOME_LEDGER_ID = "PENALTY_INCOME"
-        PENALTY_INCOME_LEDGER_NAME = "Penalty Income"
+        INTEREST_RECEIVABLE_LEDGER_NAME = \
+            "Interest Receivable"
 
-        # -------------------------------------------------
-        # Voucher Entries
-        # -------------------------------------------------
+        PENALTY_INCOME_LEDGER_ID = \
+            "PENALTY_INCOME"
+
+        PENALTY_INCOME_LEDGER_NAME = \
+            "Penalty Income"
+
+        # =====================================================
+        # VOUCHER ENTRIES
+        # =====================================================
 
         voucher_entries = [
+
             {
-                "ledger_id": PAYMENT_LEDGER_ID,
-                "ledger_name": PAYMENT_LEDGER_NAME,
-                "narration": f"Loan payment received - {loan_number}",
-                "debit": payment_amount,
-                "credit": 0
+                "ledger_id":
+                    payment_ledger_id,
+
+                "ledger_name":
+                    payment_ledger_name,
+
+                "narration":
+                    f"Customer payment - {loan_number}",
+
+                "debit":
+                    payment_amount,
+
+                "credit":
+                    0
             }
+
         ]
 
-        if principal_paid > 0:
+        # -----------------------------------------------------
+        # PRINCIPAL
+        # -----------------------------------------------------
+
+        if total_principal_paid > 0:
+
             voucher_entries.append({
-                "ledger_id": CONSUMER_LOAN_LEDGER_ID,
-                "ledger_name": CONSUMER_LOAN_LEDGER_NAME,
-                "narration": f"Principal received - {loan_number}",
-                "debit": 0,
-                "credit": round(principal_paid, 2)
+
+                "ledger_id":
+                    CONSUMER_LOAN_LEDGER_ID,
+
+                "ledger_name":
+                    CONSUMER_LOAN_LEDGER_NAME,
+
+                "narration":
+                    f"Principal received - {loan_number}",
+
+                "debit":
+                    0,
+
+                "credit":
+                    round(
+                        total_principal_paid,
+                        2
+                    )
             })
 
-        if interest_paid > 0:
+        # -----------------------------------------------------
+        # INTEREST
+        # -----------------------------------------------------
+
+        if total_interest_paid > 0:
+
             voucher_entries.append({
-                "ledger_id": INTEREST_RECEIVABLE_LEDGER_ID,
-                "ledger_name": INTEREST_RECEIVABLE_LEDGER_NAME,
-                "narration": f"Interest received - {loan_number}",
-                "debit": 0,
-                "credit": round(interest_paid, 2)
+
+                "ledger_id":
+                    INTEREST_RECEIVABLE_LEDGER_ID,
+
+                "ledger_name":
+                    INTEREST_RECEIVABLE_LEDGER_NAME,
+
+                "narration":
+                    f"Interest received - {loan_number}",
+
+                "debit":
+                    0,
+
+                "credit":
+                    round(
+                        total_interest_paid,
+                        2
+                    )
             })
 
-        if penalty_paid > 0:
+        # -----------------------------------------------------
+        # PENALTY
+        # -----------------------------------------------------
+
+        if total_penalty_paid > 0:
+
             voucher_entries.append({
-                "ledger_id": PENALTY_INCOME_LEDGER_ID,
-                "ledger_name": PENALTY_INCOME_LEDGER_NAME,
-                "narration": f"Penalty received - {loan_number}",
-                "debit": 0,
-                "credit": round(penalty_paid, 2)
+
+                "ledger_id":
+                    PENALTY_INCOME_LEDGER_ID,
+
+                "ledger_name":
+                    PENALTY_INCOME_LEDGER_NAME,
+
+                "narration":
+                    f"Penalty received - {loan_number}",
+
+                "debit":
+                    0,
+
+                "credit":
+                    round(
+                        total_penalty_paid,
+                        2
+                    )
             })
 
-        # -------------------------------------------------
-        # Create Receipt Voucher
-        # -------------------------------------------------
+        # =====================================================
+        # ACCOUNTING CHECK
+        # =====================================================
+
+        total_credit = round(
+            total_principal_paid +
+            total_interest_paid +
+            total_penalty_paid,
+            2
+        )
+
+        if abs(
+            total_credit -
+            payment_amount
+        ) > 0.01:
+
+            return jsonify({
+
+                "success": False,
+
+                "message":
+                    "Accounting voucher is not balanced",
+
+                "payment_amount":
+                    payment_amount,
+
+                "total_credit":
+                    total_credit
+
+            }), 400
+
+        # =====================================================
+        # CREATE VOUCHER
+        # =====================================================
 
         voucher = create_voucher(
+
             voucher_type="Receipt",
+
             voucher_mode=payment_mode,
-            narration=f"Customer payment - {loan_number}, EMI {emi_number}",
-            entries=voucher_entries,
-            amount=payment_amount,
-            created_by=data.get(
-                "created_by",
-                "admin"
-            ),
-            from_id=data.get(
-                "created_by",
-                "admin"
+
+            narration=
+                f"Customer payment - {loan_number}",
+
+            entries=
+                voucher_entries,
+
+            amount=
+                payment_amount,
+
+            created_by=
+                created_by,
+
+            from_id=
+                created_by
+        )
+
+        # =====================================================
+        # SECOND PASS
+        #
+        # NOW DATABASE UPDATE
+        # =====================================================
+
+        for allocation in allocations:
+
+            current_emi_number = allocation.get(
+                "emi_number"
             )
-        )
 
-        # -------------------------------------------------
-        # Update Loan
-        # -------------------------------------------------
+            emi = emi_due_collection.find_one({
 
-        loan_collection.update_one(
-            {
-                "_id": loan["_id"]
-            },
-            {
-                "$set": {
-                    "outstanding_principal": max(new_principal, 0),
-                    "interest_outstanding": max(new_interest, 0),
-                    "penalty_outstanding": max(new_penalty, 0),
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
+                "loan_number":
+                    loan_number,
 
-        # -------------------------------------------------
-        # EMI Status
-        # -------------------------------------------------
+                "emi_number":
+                    current_emi_number
+            })
 
-        total_due = (
-            principal_due +
-            interest_due
-        )
+            if not emi:
+                continue
 
-        paid_amount = (
-            principal_paid +
-            interest_paid
-        )
+            # -------------------------------------------------
+            # OLD VALUES
+            # -------------------------------------------------
 
-        emi_status = "PAID"
+            old_principal_paid = round(
+                float(
+                    emi.get(
+                        "principal_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
 
-        if paid_amount < total_due:
-            emi_status = "PARTIAL"
+            old_interest_paid = round(
+                float(
+                    emi.get(
+                        "interest_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
 
-        emi_due_collection.update_one(
-            {
-                "_id": emi["_id"]
-            },
-            {
-                "$set": {
-                    "status": emi_status,
-                    "paid_date": data.get(
-                        "payment_date"
-                    ),
-                    "principal_paid": principal_paid,
-                    "interest_paid": interest_paid,
-                    "penalty_paid": penalty_paid,
-                    "payment_amount": payment_amount,
-                    "voucher_id": voucher["_id"],
-                    "voucher_number": voucher["voucher_number"],
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
+            old_penalty_paid = round(
+                float(
+                    emi.get(
+                        "penalty_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
 
-        # -------------------------------------------------
-        # Mark interest_collection records as PAID
-        # when interest is fully collected
-        # -------------------------------------------------
+            # -------------------------------------------------
+            # CURRENT PAYMENT
+            # -------------------------------------------------
 
-        if interest_paid > 0:
-            interest_collection.update_many(
+            emi_principal_paid = round(
+                float(
+                    allocation.get(
+                        "principal_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            emi_interest_paid = round(
+                float(
+                    allocation.get(
+                        "interest_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            emi_penalty_paid = round(
+                float(
+                    allocation.get(
+                        "penalty_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            # -------------------------------------------------
+            # NEW CUMULATIVE PAID
+            # -------------------------------------------------
+
+            new_principal_paid = round(
+                old_principal_paid +
+                emi_principal_paid,
+                2
+            )
+
+            new_interest_paid = round(
+                old_interest_paid +
+                emi_interest_paid,
+                2
+            )
+
+            new_penalty_paid = round(
+                old_penalty_paid +
+                emi_penalty_paid,
+                2
+            )
+
+            # -------------------------------------------------
+            # DUE
+            # -------------------------------------------------
+
+            principal_due = round(
+                float(
+                    emi.get(
+                        "principal_due",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            interest_due = round(
+                float(
+                    emi.get(
+                        "interest_due",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            penalty_due = round(
+                float(
+                    allocation.get(
+                        "penalty_due",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            # -------------------------------------------------
+            # TOTAL
+            # -------------------------------------------------
+
+            emi_total_due = round(
+                principal_due +
+                interest_due +
+                penalty_due,
+                2
+            )
+
+            emi_total_paid = round(
+                new_principal_paid +
+                new_interest_paid +
+                new_penalty_paid,
+                2
+            )
+
+            pending_amount = round(
+                max(
+                    emi_total_due -
+                    emi_total_paid,
+                    0
+                ),
+                2
+            )
+
+            # -------------------------------------------------
+            # STATUS
+            # -------------------------------------------------
+
+            if pending_amount <= 0:
+
+                status = "PAID"
+
+            elif emi_total_paid > 0:
+
+                status = "PARTIAL"
+
+            else:
+
+                if allocation.get(
+                    "delay_days",
+                    0
+                ) > 0:
+
+                    status = "OVERDUE"
+
+                else:
+
+                    status = "UNPAID"
+
+            # -------------------------------------------------
+            # UPDATE EMI
+            # -------------------------------------------------
+
+            emi_due_collection.update_one(
+
                 {
-                    "loan_number": loan_number,
-                    "status": "UNPAID"
+                    "_id":
+                        emi["_id"]
                 },
+
                 {
                     "$set": {
-                        "status": "PAID",
-                        "paid_date": data.get("payment_date"),
-                        "updated_at": datetime.utcnow()
+
+                        "penalty_due":
+                            penalty_due,
+
+                        "penalty_paid":
+                            new_penalty_paid,
+
+                        "interest_paid":
+                            new_interest_paid,
+
+                        "principal_paid":
+                            new_principal_paid,
+
+                        "payment_amount":
+                            round(
+                                new_principal_paid +
+                                new_interest_paid +
+                                new_penalty_paid,
+                                2
+                            ),
+
+                        "pending_amount":
+                            pending_amount,
+
+                        "status":
+                            status,
+
+                        "paid_date":
+                            payment_date,
+
+                        "updated_at":
+                            datetime.utcnow()
                     }
                 }
             )
 
-        # -------------------------------------------------
-        # Payment History
-        # -------------------------------------------------
+        # =====================================================
+        # PAYMENT HISTORY
+        # =====================================================
 
         payment_collection.insert_one({
-            "loan_id": loan["_id"],
-            "loan_number": loan_number,
-            "emi_number": emi_number,
-            "customer_id": loan["customer_id"],
-            "payment_date": data.get(
-                "payment_date"
-            ),
-            "payment_amount": payment_amount,
-            "principal_paid": principal_paid,
-            "interest_paid": interest_paid,
-            "penalty_paid": penalty_paid,
-            "payment_mode": payment_mode,
-            "transaction_id": data.get(
-                "transaction_id"
-            ),
-            "voucher_id": voucher["_id"],
-            "voucher_number": voucher["voucher_number"],
-            "created_at": datetime.utcnow()
+
+            "loan_id":
+                loan["_id"],
+
+            "loan_number":
+                loan_number,
+
+            "emi_number":
+                emi_number,
+
+            "customer_id":
+                loan.get("customer_id"),
+
+            "payment_date":
+                payment_date,
+
+            "payment_amount":
+                payment_amount,
+
+            "principal_paid":
+                total_principal_paid,
+
+            "interest_paid":
+                total_interest_paid,
+
+            "penalty_paid":
+                total_penalty_paid,
+
+            "payment_mode":
+                payment_mode,
+
+            "transaction_id":
+                transaction_id,
+
+            "voucher_id":
+                voucher["_id"],
+
+            "voucher_number":
+                voucher["voucher_number"],
+
+            "allocations":
+                allocations,
+
+            "created_by":
+                created_by,
+
+            "created_at":
+                datetime.utcnow()
         })
 
-        # -------------------------------------------------
-        # Auto Loan Closure
-        # -------------------------------------------------
+        # =====================================================
+        # UPDATE LOAN
+        # =====================================================
 
-        unpaid_emi_count = emi_due_collection.count_documents({
-            "loan_number": loan_number,
-            "status": {"$in": ["UNPAID", "PARTIAL"]}
-        })
+        loan_collection.update_one(
 
-        loan_closed = (
-            new_principal == 0 and
-            new_interest == 0 and
-            new_penalty == 0 and
-            unpaid_emi_count == 0
+            {
+                "_id":
+                    loan["_id"]
+            },
+
+            {
+                "$set": {
+
+                    "outstanding_principal":
+                        new_loan_principal,
+
+                    "interest_outstanding":
+                        new_loan_interest,
+
+                    "penalty_outstanding":
+                        new_loan_penalty,
+
+                    "updated_at":
+                        datetime.utcnow()
+                }
+            }
         )
 
+        # =====================================================
+        # FINAL EMI CHECK
+        #
+        # Status par depend nahi karega.
+        # Actual component balance check hoga.
+        # =====================================================
+
+        remaining_emi_balance = 0.0
+
+        final_emis = list(
+            emi_due_collection.find({
+                "loan_number":
+                    loan_number
+            })
+        )
+
+        for emi in final_emis:
+
+            principal_due = float(
+                emi.get(
+                    "principal_due",
+                    0
+                ) or 0
+            )
+
+            principal_paid = float(
+                emi.get(
+                    "principal_paid",
+                    0
+                ) or 0
+            )
+
+            interest_due = float(
+                emi.get(
+                    "interest_due",
+                    0
+                ) or 0
+            )
+
+            interest_paid = float(
+                emi.get(
+                    "interest_paid",
+                    0
+                ) or 0
+            )
+
+            penalty_due = float(
+                emi.get(
+                    "penalty_due",
+                    0
+                ) or 0
+            )
+
+            penalty_paid = float(
+                emi.get(
+                    "penalty_paid",
+                    0
+                ) or 0
+            )
+
+            remaining_emi_balance += max(
+                principal_due -
+                principal_paid,
+                0
+            )
+
+            remaining_emi_balance += max(
+                interest_due -
+                interest_paid,
+                0
+            )
+
+            remaining_emi_balance += max(
+                penalty_due -
+                penalty_paid,
+                0
+            )
+
+        remaining_emi_balance = round(
+            remaining_emi_balance,
+            2
+        )
+
+        # =====================================================
+        # LOAN CLOSED?
+        # =====================================================
+
+        # =====================================================
+        # FETCH UPDATED LOAN TO GET REAL outstanding_principal
+        # (After loan_collection.update_one above)
+        # =====================================================
+
+        updated_loan = loan_collection.find_one({"_id": loan["_id"]})
+
+        actual_outstanding_principal = round(
+            float(updated_loan.get("outstanding_principal", 0) or 0),
+            2
+        )
+
+        loan_closed = (
+
+            actual_outstanding_principal <= 0.01
+
+            and
+
+            new_loan_interest <= 0.01
+
+            and
+
+            new_loan_penalty <= 0.01
+
+            and
+
+            remaining_emi_balance <= 0.01
+        )
+
+
+        # =====================================================
+        # CLOSE LOAN
+        # =====================================================
+
         if loan_closed:
+
             loan_collection.update_one(
+
                 {
-                    "_id": loan["_id"]
+                    "_id":
+                        loan["_id"]
                 },
+
                 {
                     "$set": {
-                        "loan_status": "CLOSED",
-                        "closure_date": datetime.utcnow().strftime(
-                            "%Y-%m-%d"
-                        ),
-                        "updated_at": datetime.utcnow()
+
+                        "loan_status":
+                            "CLOSED",
+
+                        "closed_date":
+                            payment_date,
+
+                        "outstanding_principal":
+                            0,
+
+                        "interest_outstanding":
+                            0,
+
+                        "penalty_outstanding":
+                            0,
+
+                        "updated_at":
+                            datetime.utcnow()
                     }
                 }
             )
 
-        # -------------------------------------------------
-        # Response
-        # -------------------------------------------------
+        # =====================================================
+        # SUCCESS RESPONSE
+        # =====================================================
 
         return jsonify({
-            "success": True,
-            "message": "Payment received successfully",
-            "loan_number": loan_number,
-            "emi_number": emi_number,
-            "payment_amount": payment_amount,
-            "principal_paid": round(
-                principal_paid,
-                2
-            ),
-            "interest_paid": round(
-                interest_paid,
-                2
-            ),
-            "penalty_paid": round(
-                penalty_paid,
-                2
-            ),
-            "remaining_principal": new_principal,
-            "remaining_interest": new_interest,
-            "remaining_penalty": new_penalty,
-            "emi_status": emi_status,
-            "loan_status": "CLOSED" if loan_closed else "DISBURSED",
-            "voucher_id": voucher["_id"],
-            "voucher_number": voucher["voucher_number"]
+
+            "success":
+                True,
+
+            "message":
+                "Customer payment successful",
+
+            "loan_number":
+                loan_number,
+
+            "emi_number":
+                emi_number,
+
+            "payment_amount":
+                payment_amount,
+
+            "payment_date":
+                payment_date,
+
+            "payment_mode":
+                payment_mode,
+
+            "penalty_paid":
+                round(
+                    total_penalty_paid,
+                    2
+                ),
+
+            "interest_paid":
+                round(
+                    total_interest_paid,
+                    2
+                ),
+
+            "principal_paid":
+                round(
+                    total_principal_paid,
+                    2
+                ),
+
+            "total_allocated":
+                round(
+                    total_allocated,
+                    2
+                ),
+
+            "excess_amount":
+                0,
+
+            "voucher_id":
+                voucher["_id"],
+
+            "voucher_number":
+                voucher["voucher_number"],
+
+            "allocations":
+                allocations,
+
+            "outstanding": {
+
+                "principal":
+                    new_loan_principal,
+
+                "interest":
+                    new_loan_interest,
+
+                "penalty":
+                    new_loan_penalty,
+
+                "total":
+                    round(
+                        new_loan_principal +
+                        new_loan_interest +
+                        new_loan_penalty,
+                        2
+                    )
+            },
+
+            "remaining_emi_balance":
+                remaining_emi_balance,
+
+            "loan_closed":
+                loan_closed
+
         }), 200
 
     except Exception as e:
+
+        import traceback
+
+        traceback.print_exc()
+
         return jsonify({
-            "success": False,
-            "message": str(e)
+
+            "success":
+                False,
+
+            "message":
+                str(e)
+
         }), 500
 
 @localprime_bp.route("/penalty-posting", methods=["POST"])
@@ -5803,6 +7600,221 @@ def get_repayment_schedule(loan_number):
 # 3. CUSTOMER CURRENT DUE
 # =========================================================
 
+# @localprime_bp.route(
+#     "/customer-payment-due/<loan_number>",
+#     methods=["GET"]
+# )
+# def customer_payment_due(loan_number):
+
+#     try:
+
+#         loan = loan_collection.find_one({
+#             "loan_number": loan_number
+#         })
+
+#         if not loan:
+
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Loan not found"
+#             }), 404
+
+#         today = datetime.now().strftime(
+#             "%Y-%m-%d"
+#         )
+
+#         emis = list(
+#             emi_due_collection.find({
+#                 "loan_number":
+#                     loan_number
+#             }).sort(
+#                 "emi_number",
+#                 1
+#             )
+#         )
+
+#         current_due = []
+
+#         total_due = 0
+
+#         for emi in emis:
+
+#             # installment = float(
+#             #     emi.get(
+#             #         "installment",
+#             #         0
+#             #     )
+#             # )
+
+#             # paid = float(
+#             #     emi.get(
+#             #         "payment_amount",
+#             #         0
+#             #     )
+#             # )
+
+#             # penalty = float(
+#             #     emi.get(
+#             #         "penalty_due",
+#             #         0
+#             #     )
+#             # )
+
+#             installment = float(
+#                 emi.get("installment", 0)
+#             )
+
+#             paid = float(
+#                 emi.get("payment_amount", 0)
+#             )
+
+#             due_date = datetime.strptime(
+#                 emi["due_date"],
+#                 "%Y-%m-%d"
+#             ).date()
+
+#             today_date = datetime.now().date()
+
+#             # =========================================
+#             # DELAY DAYS
+#             # =========================================
+
+#             delay_days = max(
+#                 (today_date - due_date).days,
+#                 0
+#             )
+
+#             # =========================================
+#             # PENALTY 5% PER DAY
+#             # =========================================
+
+#             penalty_rate = 5.0
+
+#             penalty = round(
+#                 installment * penalty_rate / 100 * delay_days,
+#                 2
+#             )
+
+#             # =========================================
+#             # TOTAL PAYABLE
+#             # =========================================
+
+#             pending = max(
+#                 installment + penalty - paid,
+#                 0
+#             )
+
+#             # pending = max(
+#             #     installment +
+#             #     penalty -
+#             #     paid,
+#             #     0
+#             # )
+
+#             if pending <= 0:
+#                 continue
+
+#             due_date = emi.get(
+#                 "due_date"
+#             )
+
+#             if due_date <= today:
+
+#                 current_due.append({
+
+#                     "emi_number":
+#                         emi.get(
+#                             "emi_number"
+#                         ),
+
+#                     "due_date":
+#                         due_date,
+
+#                     "installment":
+#                         installment,
+
+#                     "principal_due":
+#                         emi.get(
+#                             "principal_due",
+#                             0
+#                         ),
+
+#                     "interest_due":
+#                         emi.get(
+#                             "interest_due",
+#                             0
+#                         ),
+
+#                     "penalty_due":
+#                         penalty,
+
+#                     "delay_days": delay_days,
+#                     "penalty_rate": penalty_rate,
+#                     "penalty_amount": penalty,
+#                     "total_payable": round(pending, 2),
+
+#                     "paid_amount":
+#                         paid,
+
+#                     "pending_amount":
+#                         round(
+#                             pending,
+#                             2
+#                         ),
+
+#                     "status":
+#                         "OVERDUE"
+#                         if due_date < today
+#                         else "DUE"
+#                 })
+
+#                 total_due += pending
+
+#         return jsonify({
+
+#             "success": True,
+
+#             "loan_number":
+#                 loan_number,
+
+#             "customer_id":
+#                 loan.get(
+#                     "customer_id"
+#                 ),
+
+#             "date":
+#                 today,
+
+#             "total_due":
+#                 round(
+#                     total_due,
+#                     2
+#                 ),
+
+#             "emi_count":
+#                 len(current_due),
+
+#             "data":
+#                 current_due
+
+#         }), 200
+
+#     except Exception as e:
+
+#         return jsonify({
+
+#             "success": False,
+#             "message": str(e)
+
+#         }), 500
+
+# =========================================================
+# CUSTOMER CURRENT DUE
+# FINAL VERSION
+#
+# Same calculation as CUSTOMER PAYMENT API
+# =========================================================
+
 @localprime_bp.route(
     "/customer-payment-due/<loan_number>",
     methods=["GET"]
@@ -5811,25 +7823,55 @@ def customer_payment_due(loan_number):
 
     try:
 
+        # =====================================================
+        # FIND LOAN
+        # =====================================================
+
         loan = loan_collection.find_one({
-            "loan_number": loan_number
+
+            "loan_number":
+                loan_number
         })
 
         if not loan:
 
             return jsonify({
-                "success": False,
-                "message": "Loan not found"
+
+                "success":
+                    False,
+
+                "message":
+                    "Loan not found"
+
             }), 404
 
-        today = datetime.now().strftime(
+        # =====================================================
+        # TODAY
+        # =====================================================
+
+        today_date = datetime.now().date()
+
+        today = today_date.strftime(
             "%Y-%m-%d"
         )
 
+        # =====================================================
+        # PENALTY RATE
+        # =====================================================
+
+        penalty_rate = 5.0
+
+        # =====================================================
+        # GET ALL EMIs
+        # =====================================================
+
         emis = list(
+
             emi_due_collection.find({
+
                 "loan_number":
                     loan_number
+
             }).sort(
                 "emi_number",
                 1
@@ -5838,103 +7880,316 @@ def customer_payment_due(loan_number):
 
         current_due = []
 
-        total_due = 0
+        total_due = 0.0
+
+        total_principal_due = 0.0
+        total_interest_due = 0.0
+        total_penalty_due = 0.0
+
+        # =====================================================
+        # LOOP EMIs
+        # =====================================================
 
         for emi in emis:
 
-            installment = float(
-                emi.get(
-                    "installment",
+            # -------------------------------------------------
+            # VALUES
+            # -------------------------------------------------
+
+            principal_due = round(
+                float(
+                    emi.get(
+                        "principal_due",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            interest_due = round(
+                float(
+                    emi.get(
+                        "interest_due",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            installment = round(
+                float(
+                    emi.get(
+                        "installment",
+                        principal_due +
+                        interest_due
+                    ) or 0
+                ),
+                2
+            )
+
+            principal_paid = round(
+                float(
+                    emi.get(
+                        "principal_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            interest_paid = round(
+                float(
+                    emi.get(
+                        "interest_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            penalty_paid = round(
+                float(
+                    emi.get(
+                        "penalty_paid",
+                        0
+                    ) or 0
+                ),
+                2
+            )
+
+            # -------------------------------------------------
+            # BASE OUTSTANDING
+            # -------------------------------------------------
+
+            remaining_principal = round(
+                max(
+                    principal_due -
+                    principal_paid,
                     0
-                )
+                ),
+                2
             )
 
-            paid = float(
-                emi.get(
-                    "payment_amount",
+            remaining_interest = round(
+                max(
+                    interest_due -
+                    interest_paid,
                     0
-                )
+                ),
+                2
             )
 
-            penalty = float(
-                emi.get(
-                    "penalty_due",
-                    0
-                )
+            base_outstanding = round(
+                remaining_principal +
+                remaining_interest,
+                2
             )
 
-            pending = max(
-                installment +
-                penalty -
-                paid,
-                0
-            )
+            # -------------------------------------------------
+            # DUE DATE
+            # -------------------------------------------------
 
-            if pending <= 0:
-                continue
-
-            due_date = emi.get(
+            due_date_value = emi.get(
                 "due_date"
             )
 
-            if due_date <= today:
+            delay_days = 0
 
-                current_due.append({
+            if due_date_value:
 
-                    "emi_number":
-                        emi.get(
-                            "emi_number"
-                        ),
+                try:
 
-                    "due_date":
-                        due_date,
+                    due_date_obj = datetime.strptime(
+                        str(due_date_value),
+                        "%Y-%m-%d"
+                    ).date()
 
-                    "installment":
-                        installment,
+                    delay_days = max(
+                        (
+                            today_date -
+                            due_date_obj
+                        ).days,
+                        0
+                    )
 
-                    "principal_due":
-                        emi.get(
-                            "principal_due",
-                            0
-                        ),
+                except Exception:
 
-                    "interest_due":
-                        emi.get(
-                            "interest_due",
-                            0
-                        ),
+                    due_date_obj = None
+                    delay_days = 0
 
-                    "penalty_due":
-                        penalty,
+            else:
 
-                    "paid_amount":
-                        paid,
+                due_date_obj = None
 
-                    "pending_amount":
-                        round(
-                            pending,
-                            2
-                        ),
+            # -------------------------------------------------
+            # REAL-TIME PENALTY
+            #
+            # IMPORTANT:
+            # Fully paid principal+interest => no penalty
+            # -------------------------------------------------
 
-                    "status":
-                        "OVERDUE"
-                        if due_date < today
-                        else "DUE"
-                })
+            if (
+                base_outstanding > 0
+                and delay_days > 0
+            ):
 
-                total_due += pending
+                penalty_due = round(
+                    installment *
+                    penalty_rate /
+                    100 *
+                    delay_days,
+                    2
+                )
+
+            else:
+
+                penalty_due = 0.0
+                delay_days = 0
+
+            # -------------------------------------------------
+            # REMAINING PENALTY
+            # -------------------------------------------------
+
+            remaining_penalty = round(
+                max(
+                    penalty_due -
+                    penalty_paid,
+                    0
+                ),
+                2
+            )
+
+            # -------------------------------------------------
+            # TOTAL PAYABLE
+            # -------------------------------------------------
+
+            total_payable = round(
+                remaining_principal +
+                remaining_interest +
+                remaining_penalty,
+                2
+            )
+
+            # -------------------------------------------------
+            # SKIP FULLY PAID EMI
+            # -------------------------------------------------
+
+            if total_payable <= 0:
+
+                continue
+
+            # -------------------------------------------------
+            # EMI STATUS
+            # -------------------------------------------------
+
+            if delay_days > 0:
+
+                status = "OVERDUE"
+
+            else:
+
+                status = "DUE"
+
+            # -------------------------------------------------
+            # TOTALS
+            # -------------------------------------------------
+
+            total_due = round(
+                total_due +
+                total_payable,
+                2
+            )
+
+            total_principal_due = round(
+                total_principal_due +
+                remaining_principal,
+                2
+            )
+
+            total_interest_due = round(
+                total_interest_due +
+                remaining_interest,
+                2
+            )
+
+            total_penalty_due = round(
+                total_penalty_due +
+                remaining_penalty,
+                2
+            )
+
+            # -------------------------------------------------
+            # RESPONSE
+            # -------------------------------------------------
+
+            current_due.append({
+
+                "emi_number":
+                    emi.get("emi_number"),
+
+                "due_date":
+                    due_date_value,
+
+                "installment":
+                    installment,
+
+                "principal_due":
+                    principal_due,
+
+                "principal_paid":
+                    principal_paid,
+
+                "principal_outstanding":
+                    remaining_principal,
+
+                "interest_due":
+                    interest_due,
+
+                "interest_paid":
+                    interest_paid,
+
+                "interest_outstanding":
+                    remaining_interest,
+
+                "penalty_due":
+                    penalty_due,
+
+                "penalty_paid":
+                    penalty_paid,
+
+                "penalty_outstanding":
+                    remaining_penalty,
+
+                "delay_days":
+                    delay_days,
+
+                "penalty_rate":
+                    penalty_rate,
+
+                "total_payable":
+                    total_payable,
+
+                "pending_amount":
+                    total_payable,
+
+                "status":
+                    status
+            })
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
 
         return jsonify({
 
-            "success": True,
+            "success":
+                True,
 
             "loan_number":
                 loan_number,
 
             "customer_id":
-                loan.get(
-                    "customer_id"
-                ),
+                loan.get("customer_id"),
 
             "date":
                 today,
@@ -5942,6 +8197,24 @@ def customer_payment_due(loan_number):
             "total_due":
                 round(
                     total_due,
+                    2
+                ),
+
+            "principal_due":
+                round(
+                    total_principal_due,
+                    2
+                ),
+
+            "interest_due":
+                round(
+                    total_interest_due,
+                    2
+                ),
+
+            "penalty_due":
+                round(
+                    total_penalty_due,
                     2
                 ),
 
@@ -5955,14 +8228,19 @@ def customer_payment_due(loan_number):
 
     except Exception as e:
 
+        import traceback
+
+        traceback.print_exc()
+
         return jsonify({
 
-            "success": False,
-            "message": str(e)
+            "success":
+                False,
+
+            "message":
+                str(e)
 
         }), 500
-
-
 # =========================================================
 # 4. PAYMENT HISTORY
 # =========================================================
@@ -6096,17 +8374,333 @@ def customer_payment_history(loan_number):
 # 5. CUSTOMER LOAN SUMMARY
 # =========================================================
 
+# @localprime_bp.route(
+#     "/customer-loan-summary/<loan_number>",
+#     methods=["GET"]
+# )
+# def customer_loan_summary(loan_number):
+
+#     try:
+
+#         loan = loan_collection.find_one({
+#             "loan_number":
+#                 loan_number
+#         })
+
+#         if not loan:
+
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Loan not found"
+#             }), 404
+
+#         emis = list(
+#             emi_due_collection.find({
+#                 "loan_number":
+#                     loan_number
+#             })
+#         )
+
+#         total_due = 0
+#         total_paid = 0
+
+#         principal_due = 0
+#         interest_due = 0
+
+#         principal_paid = 0
+#         interest_paid = 0
+
+#         penalty_due = 0
+#         penalty_paid = 0
+
+#         paid_count = 0
+#         partial_count = 0
+#         overdue_count = 0
+#         unpaid_count = 0
+
+#         # today = datetime.now().strftime(
+#         #     "%Y-%m-%d"
+#         # )
+
+#         today = "2026=11-10"
+
+#         next_payment = None
+
+#         for emi in emis:
+
+#             installment = float(
+#                 emi.get(
+#                     "installment",
+#                     0
+#                 )
+#             )
+
+#             payment = float(
+#                 emi.get(
+#                     "payment_amount",
+#                     0
+#                 )
+#             )
+
+#             emi_penalty = float(
+#                 emi.get(
+#                     "penalty_due",
+#                     0
+#                 )
+#             )
+
+#             pending = max(
+#                 installment +
+#                 emi_penalty -
+#                 payment,
+#                 0
+#             )
+
+#             total_due += (
+#                 installment +
+#                 emi_penalty
+#             )
+
+#             total_paid += payment
+
+#             principal_due += float(
+#                 emi.get(
+#                     "principal_due",
+#                     0
+#                 )
+#             )
+
+#             interest_due += float(
+#                 emi.get(
+#                     "interest_due",
+#                     0
+#                 )
+#             )
+
+#             principal_paid += float(
+#                 emi.get(
+#                     "principal_paid",
+#                     0
+#                 )
+#             )
+
+#             interest_paid += float(
+#                 emi.get(
+#                     "interest_paid",
+#                     0
+#                 )
+#             )
+
+#             penalty_due += emi_penalty
+
+#             penalty_paid += float(
+#                 emi.get(
+#                     "penalty_paid",
+#                     0
+#                 )
+#             )
+
+#             if pending <= 0:
+
+#                 paid_count += 1
+
+#             elif payment > 0:
+
+#                 partial_count += 1
+
+#             elif emi.get(
+#                 "due_date"
+#             ) < today:
+
+#                 overdue_count += 1
+
+#             else:
+
+#                 unpaid_count += 1
+
+#             if (
+#                 pending > 0
+#                 and next_payment is None
+#             ):
+
+#                 next_payment = {
+
+#                     "emi_number":
+#                         emi.get(
+#                             "emi_number"
+#                         ),
+
+#                     "due_date":
+#                         emi.get(
+#                             "due_date"
+#                         ),
+
+#                     "amount":
+#                         round(
+#                             pending,
+#                             2
+#                         )
+#                 }
+
+#         total_pending = max(
+#             total_due -
+#             total_paid,
+#             0
+#         )
+
+#         return jsonify({
+
+#             "success": True,
+
+#             "loan_number":
+#                 loan_number,
+
+#             "customer_id":
+#                 loan.get(
+#                     "customer_id"
+#                 ),
+
+#             "summary": {
+
+#                 "loan_amount":
+#                     loan.get(
+#                         "loan_amount",
+#                         0
+#                     ),
+
+#                 "total_due":
+#                     round(
+#                         total_due,
+#                         2
+#                     ),
+
+#                 "total_paid":
+#                     round(
+#                         total_paid,
+#                         2
+#                     ),
+
+#                 "total_pending":
+#                     round(
+#                         total_pending,
+#                         2
+#                     ),
+
+#                 "principal_due":
+#                     round(
+#                         principal_due,
+#                         2
+#                     ),
+
+#                 "principal_paid":
+#                     round(
+#                         principal_paid,
+#                         2
+#                     ),
+
+#                 "principal_pending":
+#                     round(
+#                         principal_due -
+#                         principal_paid,
+#                         2
+#                     ),
+
+#                 "interest_due":
+#                     round(
+#                         interest_due,
+#                         2
+#                     ),
+
+#                 "interest_paid":
+#                     round(
+#                         interest_paid,
+#                         2
+#                     ),
+
+#                 "interest_pending":
+#                     round(
+#                         interest_due -
+#                         interest_paid,
+#                         2
+#                     ),
+
+#                 "penalty_due":
+#                     round(
+#                         penalty_due,
+#                         2
+#                     ),
+
+#                 "penalty_paid":
+#                     round(
+#                         penalty_paid,
+#                         2
+#                     ),
+
+#                 "penalty_pending":
+#                     round(
+#                         penalty_due -
+#                         penalty_paid,
+#                         2
+#                     ),
+
+#                 "paid_emi":
+#                     paid_count,
+
+#                 "partial_emi":
+#                     partial_count,
+
+#                 "overdue_emi":
+#                     overdue_count,
+
+#                 "unpaid_emi":
+#                     unpaid_count
+#             },
+
+#             "next_payment":
+#                 next_payment,
+
+#             "loan_status":
+#                 loan.get(
+#                     "loan_status"
+#                 )
+
+#         }), 200
+
+#     except Exception as e:
+
+#         return jsonify({
+
+#             "success": False,
+#             "message": str(e)
+
+#         }), 500
+
+
+# =========================================================
+# CUSTOMER PAYMENT SUMMARY
+# GET /customer-payment-summary/<loan_number>
+#
+# Example:
+# GET /customer-payment-summary/LN000009?payment_date=2026-10-06
+#
+# Penalty:
+# 5% PER DAY
+# =========================================================
+
 @localprime_bp.route(
     "/customer-loan-summary/<loan_number>",
     methods=["GET"]
 )
-def customer_loan_summary(loan_number):
+def customer_payment_summary(loan_number):
 
     try:
 
+        # =====================================================
+        # FIND LOAN
+        # =====================================================
+
         loan = loan_collection.find_one({
-            "loan_number":
-                loan_number
+            "loan_number": loan_number
         })
 
         if not loan:
@@ -6116,127 +8710,363 @@ def customer_loan_summary(loan_number):
                 "message": "Loan not found"
             }), 404
 
-        emis = list(
-            emi_due_collection.find({
-                "loan_number":
-                    loan_number
-            })
+
+        # =====================================================
+        # PAYMENT DATE FROM API
+        # =====================================================
+
+        payment_date_str = request.args.get(
+            "payment_date"
         )
 
-        total_due = 0
-        total_paid = 0
 
-        principal_due = 0
-        interest_due = 0
+        # If payment_date is not sent,
+        # use today's date
 
-        principal_paid = 0
-        interest_paid = 0
+        if payment_date_str:
 
-        penalty_due = 0
-        penalty_paid = 0
+            try:
+
+                payment_date = datetime.strptime(
+                    payment_date_str,
+                    "%Y-%m-%d"
+                ).date()
+
+            except ValueError:
+
+                return jsonify({
+                    "success": False,
+                    "message":
+                        "payment_date must be YYYY-MM-DD"
+                }), 400
+
+        else:
+
+            payment_date = datetime.now().date()
+
+
+        payment_date_display = (
+            payment_date.strftime(
+                "%Y-%m-%d"
+            )
+        )
+
+
+        # =====================================================
+        # GET EMI SCHEDULE
+        # =====================================================
+
+        emis = list(
+            emi_due_collection.find({
+                "loan_number": loan_number
+            }).sort(
+                "emi_number",
+                1
+            )
+        )
+
+
+        if not emis:
+
+            return jsonify({
+                "success": False,
+                "message": "No EMI schedule found"
+            }), 404
+
+
+        # =====================================================
+        # PENALTY RATE
+        # =====================================================
+
+        penalty_rate = 5.0
+
+
+        # =====================================================
+        # TOTAL VARIABLES
+        # =====================================================
+
+        total_due = 0.0
+        total_paid = 0.0
+        total_pending = 0.0
+
+        principal_due = 0.0
+        principal_paid = 0.0
+
+        interest_due = 0.0
+        interest_paid = 0.0
+
+        penalty_due = 0.0
+        penalty_paid = 0.0
 
         paid_count = 0
         partial_count = 0
         overdue_count = 0
         unpaid_count = 0
 
-        today = datetime.now().strftime(
-            "%Y-%m-%d"
-        )
-
         next_payment = None
 
+        schedule = []
+
+
+        # =====================================================
+        # PROCESS EMI
+        # =====================================================
+
         for emi in emis:
+
+            # -------------------------------------------------
+            # EMI INSTALLMENT
+            # -------------------------------------------------
 
             installment = float(
                 emi.get(
                     "installment",
                     0
-                )
+                ) or 0
             )
+
+
+            # -------------------------------------------------
+            # ALREADY PAID
+            # -------------------------------------------------
 
             payment = float(
                 emi.get(
                     "payment_amount",
                     0
-                )
+                ) or 0
             )
 
-            emi_penalty = float(
+
+            # -------------------------------------------------
+            # PRINCIPAL
+            # -------------------------------------------------
+
+            emi_principal_due = float(
                 emi.get(
-                    "penalty_due",
+                    "principal_due",
                     0
-                )
+                ) or 0
             )
 
-            pending = max(
-                installment +
-                emi_penalty -
-                payment,
+            emi_principal_paid = float(
+                emi.get(
+                    "principal_paid",
+                    0
+                ) or 0
+            )
+
+
+            # -------------------------------------------------
+            # INTEREST
+            # -------------------------------------------------
+
+            emi_interest_due = float(
+                emi.get(
+                    "interest_due",
+                    0
+                ) or 0
+            )
+
+            emi_interest_paid = float(
+                emi.get(
+                    "interest_paid",
+                    0
+                ) or 0
+            )
+
+
+            # -------------------------------------------------
+            # DUE DATE
+            # -------------------------------------------------
+
+            due_date_str = emi.get(
+                "due_date"
+            )
+
+
+            if not due_date_str:
+
+                continue
+
+
+            try:
+
+                due_date = datetime.strptime(
+                    str(due_date_str),
+                    "%Y-%m-%d"
+                ).date()
+
+            except ValueError:
+
+                continue
+
+
+            # =================================================
+            # REMAINING EMI
+            # =================================================
+
+            remaining_emi = max(
+                installment - payment,
                 0
             )
 
+
+            # =================================================
+            # DELAY DAYS
+            #
+            # Payment date - EMI due date
+            # =================================================
+
+            delay_days = max(
+                (
+                    payment_date -
+                    due_date
+                ).days,
+                0
+            )
+
+
+            # =================================================
+            # AUTOMATIC PENALTY
+            #
+            # 5% PER DAY
+            #
+            # Example:
+            # EMI = 10000
+            # Delay = 5 days
+            #
+            # 10000 × 5% × 5
+            # = 2500
+            # =================================================
+
+            calculated_penalty = 0.0
+
+
+            if (
+                delay_days > 0
+                and remaining_emi > 0
+            ):
+
+                calculated_penalty = round(
+                    remaining_emi
+                    * penalty_rate
+                    / 100
+                    * delay_days,
+                    2
+                )
+
+
+            # =================================================
+            # EXISTING PENALTY PAID
+            # =================================================
+
+            emi_penalty_paid = float(
+                emi.get(
+                    "penalty_paid",
+                    0
+                ) or 0
+            )
+
+
+            # =================================================
+            # PENALTY PENDING
+            # =================================================
+
+            emi_penalty_pending = max(
+                calculated_penalty -
+                emi_penalty_paid,
+                0
+            )
+
+
+            # =================================================
+            # TOTAL PAYABLE
+            # =================================================
+
+            pending = max(
+                remaining_emi +
+                emi_penalty_pending,
+                0
+            )
+
+
+            # =================================================
+            # TOTALS
+            # =================================================
+
             total_due += (
                 installment +
-                emi_penalty
+                emi_penalty_pending
             )
 
             total_paid += payment
 
-            principal_due += float(
-                emi.get(
-                    "principal_due",
-                    0
-                )
+            total_pending += pending
+
+
+            principal_due += (
+                emi_principal_due
             )
 
-            interest_due += float(
-                emi.get(
-                    "interest_due",
-                    0
-                )
+            principal_paid += (
+                emi_principal_paid
             )
 
-            principal_paid += float(
-                emi.get(
-                    "principal_paid",
-                    0
-                )
+
+            interest_due += (
+                emi_interest_due
             )
 
-            interest_paid += float(
-                emi.get(
-                    "interest_paid",
-                    0
-                )
+            interest_paid += (
+                emi_interest_paid
             )
 
-            penalty_due += emi_penalty
 
-            penalty_paid += float(
-                emi.get(
-                    "penalty_paid",
-                    0
-                )
+            penalty_due += (
+                emi_penalty_pending
             )
+
+            penalty_paid += (
+                emi_penalty_paid
+            )
+
+
+            # =================================================
+            # STATUS
+            # =================================================
 
             if pending <= 0:
 
+                status = "PAID"
+
                 paid_count += 1
+
 
             elif payment > 0:
 
+                status = "PARTIAL"
+
                 partial_count += 1
 
-            elif emi.get(
-                "due_date"
-            ) < today:
+
+            elif due_date < payment_date:
+
+                status = "OVERDUE"
 
                 overdue_count += 1
 
+
             else:
 
+                status = "UNPAID"
+
                 unpaid_count += 1
+
+
+            # =================================================
+            # NEXT PAYMENT
+            # =================================================
 
             if (
                 pending > 0
@@ -6251,22 +9081,151 @@ def customer_loan_summary(loan_number):
                         ),
 
                     "due_date":
-                        emi.get(
-                            "due_date"
-                        ),
+                        due_date_str,
 
                     "amount":
+                        round(
+                            pending,
+                            2
+                        ),
+
+                    "installment":
+                        round(
+                            installment,
+                            2
+                        ),
+
+                    "paid_amount":
+                        round(
+                            payment,
+                            2
+                        ),
+
+                    "delay_days":
+                        delay_days,
+
+                    "penalty_rate":
+                        penalty_rate,
+
+                    "penalty_amount":
+                        round(
+                            emi_penalty_pending,
+                            2
+                        ),
+
+                    "total_payable":
                         round(
                             pending,
                             2
                         )
                 }
 
+
+            # =================================================
+            # EMI SCHEDULE
+            # =================================================
+
+            schedule.append({
+
+                "emi_number":
+                    emi.get(
+                        "emi_number"
+                    ),
+
+                "due_date":
+                    due_date_str,
+
+                "installment":
+                    round(
+                        installment,
+                        2
+                    ),
+
+                "paid_amount":
+                    round(
+                        payment,
+                        2
+                    ),
+
+                "remaining_emi":
+                    round(
+                        remaining_emi,
+                        2
+                    ),
+
+                "principal_due":
+                    round(
+                        emi_principal_due,
+                        2
+                    ),
+
+                "principal_paid":
+                    round(
+                        emi_principal_paid,
+                        2
+                    ),
+
+                "interest_due":
+                    round(
+                        emi_interest_due,
+                        2
+                    ),
+
+                "interest_paid":
+                    round(
+                        emi_interest_paid,
+                        2
+                    ),
+
+                "delay_days":
+                    delay_days,
+
+                "penalty_rate":
+                    penalty_rate,
+
+                "penalty_amount":
+                    round(
+                        emi_penalty_pending,
+                        2
+                    ),
+
+                "penalty_paid":
+                    round(
+                        emi_penalty_paid,
+                        2
+                    ),
+
+                "total_payable":
+                    round(
+                        pending,
+                        2
+                    ),
+
+                "pending_amount":
+                    round(
+                        pending,
+                        2
+                    ),
+
+                "status":
+                    status
+            })
+
+
+        # =====================================================
+        # FINAL TOTAL
+        # =====================================================
+
         total_pending = max(
             total_due -
             total_paid,
             0
         )
+
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
 
         return jsonify({
 
@@ -6279,6 +9238,17 @@ def customer_loan_summary(loan_number):
                 loan.get(
                     "customer_id"
                 ),
+
+            "loan_status":
+                loan.get(
+                    "loan_status"
+                ),
+
+            "payment_date":
+                payment_date_display,
+
+            "penalty_rate":
+                penalty_rate,
 
             "summary": {
 
@@ -6320,8 +9290,11 @@ def customer_loan_summary(loan_number):
 
                 "principal_pending":
                     round(
-                        principal_due -
-                        principal_paid,
+                        max(
+                            principal_due -
+                            principal_paid,
+                            0
+                        ),
                         2
                     ),
 
@@ -6339,8 +9312,11 @@ def customer_loan_summary(loan_number):
 
                 "interest_pending":
                     round(
-                        interest_due -
-                        interest_paid,
+                        max(
+                            interest_due -
+                            interest_paid,
+                            0
+                        ),
                         2
                     ),
 
@@ -6358,8 +9334,11 @@ def customer_loan_summary(loan_number):
 
                 "penalty_pending":
                     round(
-                        penalty_due -
-                        penalty_paid,
+                        max(
+                            penalty_due -
+                            penalty_paid,
+                            0
+                        ),
                         2
                     ),
 
@@ -6379,19 +9358,20 @@ def customer_loan_summary(loan_number):
             "next_payment":
                 next_payment,
 
-            "loan_status":
-                loan.get(
-                    "loan_status"
-                )
+            "schedule":
+                schedule
 
         }), 200
+
 
     except Exception as e:
 
         return jsonify({
 
             "success": False,
-            "message": str(e)
+
+            "message":
+                str(e)
 
         }), 500
 
@@ -6435,4 +9415,1804 @@ def emi_dues_list():
         return jsonify({
             "success": False,
             "message": str(e)
+        }), 500
+
+
+
+# =========================================================
+# CUSTOMER LOAN STATEMENT
+# =========================================================
+
+@localprime_bp.route(
+    "/customer-statement/<loan_number>",
+    methods=["GET"]
+)
+def customer_statement(loan_number):
+
+    try:
+
+        # -------------------------------------------------
+        # Find Loan
+        # -------------------------------------------------
+
+        loan = loan_collection.find_one({
+            "loan_number": loan_number
+        })
+
+        if not loan:
+            return jsonify({
+                "success": False,
+                "message": "Loan not found"
+            }), 404
+
+
+        # -------------------------------------------------
+        # Customer Payments
+        # -------------------------------------------------
+
+        payments = list(
+            payment_collection.find({
+                "loan_number": loan_number
+            }).sort(
+                "created_at",
+                1
+            )
+        )
+
+
+        # -------------------------------------------------
+        # EMI Schedule
+        # -------------------------------------------------
+
+        emis = list(
+            emi_due_collection.find({
+                "loan_number": loan_number
+            }).sort(
+                "emi_number",
+                1
+            )
+        )
+
+
+        # -------------------------------------------------
+        # Statement
+        # -------------------------------------------------
+
+        statement = []
+
+        total_principal_paid = 0
+        total_interest_paid = 0
+        total_penalty_paid = 0
+        total_payment = 0
+
+
+        # -------------------------------------------------
+        # Opening Balance
+        # -------------------------------------------------
+
+        opening_principal = float(
+            loan.get("loan_amount", 0)
+        )
+
+        opening_interest = 0
+        opening_penalty = 0
+
+
+        # -------------------------------------------------
+        # PAYMENT ENTRIES
+        # -------------------------------------------------
+
+        for payment in payments:
+
+            principal_paid = round(
+                float(payment.get(
+                    "principal_paid",
+                    0
+                )),
+                2
+            )
+
+            interest_paid = round(
+                float(payment.get(
+                    "interest_paid",
+                    0
+                )),
+                2
+            )
+
+            penalty_paid = round(
+                float(payment.get(
+                    "penalty_paid",
+                    0
+                )),
+                2
+            )
+
+            payment_amount = round(
+                float(payment.get(
+                    "payment_amount",
+                    0
+                )),
+                2
+            )
+
+
+            total_principal_paid += principal_paid
+            total_interest_paid += interest_paid
+            total_penalty_paid += penalty_paid
+            total_payment += payment_amount
+
+
+            # Running principal balance
+
+            closing_principal = round(
+                opening_principal -
+                principal_paid,
+                2
+            )
+
+            closing_principal = max(
+                closing_principal,
+                0
+            )
+
+
+            # Running interest balance
+
+            closing_interest = round(
+                opening_interest -
+                interest_paid,
+                2
+            )
+
+            closing_interest = max(
+                closing_interest,
+                0
+            )
+
+
+            # Running penalty balance
+
+            closing_penalty = round(
+                opening_penalty -
+                penalty_paid,
+                2
+            )
+
+            closing_penalty = max(
+                closing_penalty,
+                0
+            )
+
+
+            statement.append({
+
+                "type": "PAYMENT",
+
+                "date": payment.get(
+                    "payment_date"
+                ),
+
+                "emi_number": payment.get(
+                    "emi_number"
+                ),
+
+                "description":
+                    f"Customer payment - EMI "
+                    f"{payment.get('emi_number')}",
+
+                "payment_mode": payment.get(
+                    "payment_mode"
+                ),
+
+                "voucher_id": payment.get(
+                    "voucher_id"
+                ),
+
+                "voucher_number": payment.get(
+                    "voucher_number"
+                ),
+
+                "transaction_id": payment.get(
+                    "transaction_id"
+                ),
+
+                "debit": 0,
+
+                "credit": payment_amount,
+
+                "principal_paid":
+                    principal_paid,
+
+                "interest_paid":
+                    interest_paid,
+
+                "penalty_paid":
+                    penalty_paid,
+
+                "total_paid":
+                    payment_amount,
+
+                "principal_balance":
+                    closing_principal,
+
+                "interest_balance":
+                    closing_interest,
+
+                "penalty_balance":
+                    closing_penalty,
+
+                "total_balance": round(
+                    closing_principal +
+                    closing_interest +
+                    closing_penalty,
+                    2
+                )
+            })
+
+
+            opening_principal = closing_principal
+            opening_interest = closing_interest
+            opening_penalty = closing_penalty
+
+
+        # -------------------------------------------------
+        # EMI DUE ENTRIES
+        # -------------------------------------------------
+
+        emi_statement = []
+
+        total_principal_due = 0
+        total_interest_due = 0
+        total_penalty_due = 0
+
+
+        for emi in emis:
+
+            principal_due = round(
+                float(emi.get(
+                    "principal_due",
+                    0
+                )),
+                2
+            )
+
+            interest_due = round(
+                float(emi.get(
+                    "interest_due",
+                    0
+                )),
+                2
+            )
+
+            penalty_due = round(
+                float(emi.get(
+                    "penalty_due",
+                    0
+                )),
+                2
+            )
+
+            principal_paid = round(
+                float(emi.get(
+                    "principal_paid",
+                    0
+                )),
+                2
+            )
+
+            interest_paid = round(
+                float(emi.get(
+                    "interest_paid",
+                    0
+                )),
+                2
+            )
+
+            penalty_paid = round(
+                float(emi.get(
+                    "penalty_paid",
+                    0
+                )),
+                2
+            )
+
+
+            total_due = round(
+                principal_due +
+                interest_due +
+                penalty_due,
+                2
+            )
+
+            total_paid = round(
+                principal_paid +
+                interest_paid +
+                penalty_paid,
+                2
+            )
+
+            pending_amount = max(
+                round(
+                    total_due -
+                    total_paid,
+                    2
+                ),
+                0
+            )
+
+
+            total_principal_due += principal_due
+            total_interest_due += interest_due
+            total_penalty_due += penalty_due
+
+
+            emi_statement.append({
+
+                "emi_number": emi.get(
+                    "emi_number"
+                ),
+
+                "due_date": emi.get(
+                    "due_date"
+                ),
+
+                "installment":
+                    emi.get(
+                        "installment",
+                        0
+                    ),
+
+                "principal_due":
+                    principal_due,
+
+                "interest_due":
+                    interest_due,
+
+                "penalty_due":
+                    penalty_due,
+
+                "principal_paid":
+                    principal_paid,
+
+                "interest_paid":
+                    interest_paid,
+
+                "penalty_paid":
+                    penalty_paid,
+
+                "total_due":
+                    total_due,
+
+                "total_paid":
+                    total_paid,
+
+                "pending_amount":
+                    pending_amount,
+
+                "status":
+                    emi.get(
+                        "status",
+                        "UNPAID"
+                    )
+            })
+
+
+        # -------------------------------------------------
+        # FINAL OUTSTANDING
+        # -------------------------------------------------
+
+        outstanding_principal = round(
+            float(
+                loan.get(
+                    "outstanding_principal",
+                    0
+                )
+            ),
+            2
+        )
+
+        outstanding_interest = round(
+            float(
+                loan.get(
+                    "interest_outstanding",
+                    0
+                )
+            ),
+            2
+        )
+
+        outstanding_penalty = round(
+            float(
+                loan.get(
+                    "penalty_outstanding",
+                    0
+                )
+            ),
+            2
+        )
+
+        total_outstanding = round(
+            outstanding_principal +
+            outstanding_interest +
+            outstanding_penalty,
+            2
+        )
+
+
+        # -------------------------------------------------
+        # RESPONSE
+        # -------------------------------------------------
+
+        return jsonify({
+
+            "success": True,
+
+            "loan": {
+
+                "loan_id": str(
+                    loan["_id"]
+                ),
+
+                "loan_number":
+                    loan_number,
+
+                "customer_id":
+                    loan.get(
+                        "customer_id"
+                    ),
+
+                "loan_amount":
+                    loan.get(
+                        "loan_amount",
+                        0
+                    ),
+
+                "interest_rate":
+                    loan.get(
+                        "interest_rate",
+                        0
+                    ),
+
+                "interest_type":
+                    loan.get(
+                        "interest_type"
+                    ),
+
+                "frequency":
+                    loan.get(
+                        "frequency"
+                    ),
+
+                "tenure":
+                    loan.get(
+                        "tenure"
+                    ),
+
+                "loan_status":
+                    loan.get(
+                        "loan_status"
+                    ),
+
+                "disbursement_date":
+                    loan.get(
+                        "disbursement_date"
+                    )
+            },
+
+
+            "summary": {
+
+                "total_loan_amount":
+                    round(
+                        float(
+                            loan.get(
+                                "loan_amount",
+                                0
+                            )
+                        ),
+                        2
+                    ),
+
+                "total_principal_due":
+                    round(
+                        total_principal_due,
+                        2
+                    ),
+
+                "total_interest_due":
+                    round(
+                        total_interest_due,
+                        2
+                    ),
+
+                "total_penalty_due":
+                    round(
+                        total_penalty_due,
+                        2
+                    ),
+
+                "total_payment_received":
+                    round(
+                        total_payment,
+                        2
+                    ),
+
+                "total_principal_paid":
+                    round(
+                        total_principal_paid,
+                        2
+                    ),
+
+                "total_interest_paid":
+                    round(
+                        total_interest_paid,
+                        2
+                    ),
+
+                "total_penalty_paid":
+                    round(
+                        total_penalty_paid,
+                        2
+                    ),
+
+                "outstanding_principal":
+                    outstanding_principal,
+
+                "outstanding_interest":
+                    outstanding_interest,
+
+                "outstanding_penalty":
+                    outstanding_penalty,
+
+                "total_outstanding":
+                    total_outstanding
+            },
+
+
+            "emi_schedule":
+                emi_statement,
+
+
+            "payment_statement":
+                statement
+
+        }), 200
+
+
+    except Exception as e:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e)
+
+        }), 500
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from flask import Blueprint, request, jsonify
+# from bson import ObjectId
+# from datetime import datetime
+
+# # ---------------------------------------------------------
+# # Blueprint
+# # ---------------------------------------------------------
+# loan_commission_bp = Blueprint(
+#     "loan_commission_bp",
+#     __name__
+# )
+
+# ---------------------------------------------------------
+# MongoDB collections
+# ---------------------------------------------------------
+# Change these according to your existing db setup
+# members = db["members"]
+# loan_collection = db["loans"]
+# emi_due_collection = db["emi_due"]
+
+
+# =========================================================
+# COMMISSION CONFIGURATION
+# =========================================================
+
+COMMISSION_LEVELS = {
+    1: 5.0,   # Direct agent
+    2: 3.0,   # Parent
+    3: 3.0,   # Parent's parent
+    4: 2.0,
+    5: 2.0,
+    6: 1.0,
+    7: 1.0
+}
+
+
+# =========================================================
+# OBJECT ID HELPER
+# =========================================================
+
+def convert_object_id(value):
+    """
+    Safely convert value to ObjectId.
+    """
+    if not value:
+        return None
+
+    try:
+        return ObjectId(str(value))
+    except Exception:
+        return None
+
+
+# =========================================================
+# GET AGENT
+# =========================================================
+
+def get_agent(agent_id):
+    """
+    Get agent/member document using MongoDB _id.
+    """
+
+    object_id = convert_object_id(agent_id)
+
+    if object_id:
+        agent = members.find_one({
+            "_id": object_id,
+            "isAgent": True
+        })
+
+        if agent:
+            return agent
+
+    # fallback if agent_id is stored as string
+    agent = members.find_one({
+        "_id": str(agent_id),
+        "isAgent": True
+    })
+
+    return agent
+
+
+# =========================================================
+# GET AGENT NAME
+# =========================================================
+
+def get_agent_name(agent):
+    if not agent:
+        return ""
+
+    return (
+        agent.get("name")
+        or agent.get("member_name")
+        or agent.get("memberName")
+        or (
+            f"{agent.get('firstName', '')} "
+            f"{agent.get('lastName', '')}"
+        ).strip()
+        or agent.get("agentName")
+        or ""
+    )
+
+
+# =========================================================
+# GET MEMBER NAME
+# =========================================================
+
+def get_member_name(loan):
+    """
+    Get customer/member name from loan.
+    """
+
+    name = (
+        loan.get("member_name")
+        or loan.get("memberName")
+        or loan.get("customer_name")
+        or loan.get("customerName")
+    )
+
+    if name:
+        return name
+
+    member_id = loan.get("member_id") or loan.get("customer_id")
+
+    if member_id:
+        member = None
+
+        object_id = convert_object_id(member_id)
+
+        if object_id:
+            member = members.find_one({
+                "_id": object_id
+            })
+
+        if not member:
+            member = members.find_one({
+                "_id": str(member_id)
+            })
+
+        if member:
+            return get_agent_name(member)
+
+    return ""
+
+
+# =========================================================
+# GET AGENT HIERARCHY
+# =========================================================
+
+def get_agent_hierarchy(agent_id, max_levels=7):
+    """
+    Level 1 = Loan/direct agent
+    Level 2 = Direct agent's parent
+    Level 3 = Parent's parent
+    ...
+    Level 7
+
+    Parent relationship:
+
+        Current Agent
+              |
+          IntroCode
+              |
+          agentCode
+    """
+
+    hierarchy = []
+
+    current_agent = get_agent(agent_id)
+
+    if not current_agent:
+        return hierarchy
+
+    visited = set()
+
+    for level in range(1, max_levels + 1):
+
+        if not current_agent:
+            break
+
+        current_id = str(current_agent.get("_id"))
+
+        # Prevent circular hierarchy
+        if current_id in visited:
+            break
+
+        visited.add(current_id)
+
+        hierarchy.append({
+            "level": level,
+            "agent_id": current_id,
+            "agent_code": current_agent.get("agentCode"),
+            "agent_name": get_agent_name(current_agent),
+            "designation": current_agent.get("designation"),
+            "IntroCode": current_agent.get("IntroCode")
+        })
+
+        # -------------------------------------------------
+        # Find parent agent
+        # -------------------------------------------------
+
+        intro_code = current_agent.get("IntroCode")
+
+        if not intro_code:
+            break
+
+        parent_agent = members.find_one({
+            "agentCode": intro_code,
+            "isAgent": True
+        })
+
+        if not parent_agent:
+            break
+
+        current_agent = parent_agent
+
+    return hierarchy
+
+
+# =========================================================
+# GET LOAN EMI TOTAL PAID
+# =========================================================
+
+def get_loan_paid_emi(loan):
+    """
+    Calculate total EMI payment already received.
+
+    IMPORTANT:
+    payment_amount is NOT taken from request body.
+
+    It is calculated from EMI collection.
+    """
+
+    loan_id = loan.get("_id")
+
+    loan_number = (
+        loan.get("loan_number")
+        or loan.get("loanNumber")
+        or loan.get("account_number")
+        or loan.get("accountNumber")
+    )
+
+    query_list = []
+
+    # -----------------------------------------------------
+    # Search using loan ObjectId
+    # -----------------------------------------------------
+
+    if loan_id:
+        query_list.append({
+            "loan_id": loan_id
+        })
+
+        query_list.append({
+            "loan_id": str(loan_id)
+        })
+
+    # -----------------------------------------------------
+    # Search using loan number
+    # -----------------------------------------------------
+
+    if loan_number:
+        query_list.append({
+            "loan_number": loan_number
+        })
+
+    if not query_list:
+        return {
+            "paid_emi_amount": 0,
+            "paid_emi_count": 0
+        }
+
+    total_paid = 0
+    paid_emi_count = 0
+
+    # Avoid duplicate EMI documents
+    processed_ids = set()
+
+    for query in query_list:
+
+        emi_list = emi_due_collection.find(query)
+
+        for emi in emi_list:
+
+            emi_id = str(emi.get("_id"))
+
+            if emi_id in processed_ids:
+                continue
+
+            processed_ids.add(emi_id)
+
+            # Only completely paid EMIs
+            status = str(
+                emi.get("status", "")
+            ).upper()
+
+            if status != "PAID":
+                continue
+
+            payment_amount = emi.get(
+                "payment_amount",
+                0
+            ) or 0
+
+            try:
+                payment_amount = float(payment_amount)
+            except Exception:
+                payment_amount = 0
+
+            if payment_amount <= 0:
+                continue
+
+            total_paid += payment_amount
+            paid_emi_count += 1
+
+    return {
+        "paid_emi_amount": round(total_paid, 2),
+        "paid_emi_count": paid_emi_count
+    }
+
+
+# =========================================================
+# DATE FORMATTER
+# =========================================================
+
+def format_date(value):
+
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+
+    return str(value)
+
+
+# =========================================================
+# LIVE COMMISSION API
+# =========================================================
+
+# @localprime_bp.route(
+#     "/agentcommission_latest",
+#     methods=["POST"]
+# )
+# def agentcommission_latest():
+
+#     try:
+
+#         data = request.get_json(silent=True) or {}
+
+#         # -------------------------------------------------
+#         # Agent ID is required
+#         # -------------------------------------------------
+
+#         agent_id = data.get("agent_id")
+
+#         if not agent_id:
+#             return jsonify({
+#                 "status": False,
+#                 "message": "agent_id is required"
+#             }), 400
+
+#         # -------------------------------------------------
+#         # Validate agent
+#         # -------------------------------------------------
+
+#         agent = get_agent(agent_id)
+
+#         if not agent:
+#             return jsonify({
+#                 "status": False,
+#                 "message": "Agent not found"
+#             }), 404
+
+#         # -------------------------------------------------
+#         # Hierarchy
+#         # -------------------------------------------------
+
+#         hierarchy = get_agent_hierarchy(
+#             agent_id,
+#             max_levels=7
+#         )
+
+#         if not hierarchy:
+#             return jsonify({
+#                 "status": False,
+#                 "message": "Agent hierarchy not found"
+#             }), 404
+
+#         # -------------------------------------------------
+#         # Current agent is level 1
+#         # -------------------------------------------------
+
+#         hierarchy_agent_ids = [
+#             item["agent_id"]
+#             for item in hierarchy
+#         ]
+
+#         # -------------------------------------------------
+#         # Find loans directly generated by requested agent
+#         #
+#         # Loan agent_id is ObjectId in your current model.
+#         # -------------------------------------------------
+
+#         object_id = convert_object_id(agent_id)
+
+#         loan_query = []
+
+#         if object_id:
+#             loan_query.append({
+#                 "agent_id": object_id
+#             })
+
+#         loan_query.append({
+#             "agent_id": str(agent_id)
+#         })
+
+#         loans = []
+
+#         processed_loans = set()
+
+#         for query in loan_query:
+
+#             for loan in loan_collection.find(query):
+
+#                 loan_id = str(
+#                     loan.get("_id")
+#                 )
+
+#                 if loan_id in processed_loans:
+#                     continue
+
+#                 processed_loans.add(loan_id)
+
+#                 loans.append(loan)
+
+#         # =================================================
+#         # RESPONSE DATA
+#         # =================================================
+
+#         accounts = []
+#         loan_summary = []
+
+#         grand_paid_emi = 0
+#         grand_commission = 0
+
+#         # =================================================
+#         # LOOP LOANS
+#         # =================================================
+
+#         for loan in loans:
+
+#             loan_id = str(
+#                 loan.get("_id")
+#             )
+
+#             # -------------------------------------------------
+#             # Loan number
+#             # -------------------------------------------------
+
+#             account_number = (
+#                 loan.get("loan_number")
+#                 or loan.get("loanNumber")
+#                 or loan.get("account_number")
+#                 or loan.get("accountNumber")
+#                 or loan_id
+#             )
+
+#             # -------------------------------------------------
+#             # Customer
+#             # -------------------------------------------------
+
+#             member_name = get_member_name(loan)
+
+#             # -------------------------------------------------
+#             # Loan date
+#             # -------------------------------------------------
+
+#             loan_date = (
+#                 loan.get("loan_date")
+#                 or loan.get("loanDate")
+#                 or loan.get("approved_at")
+#                 or loan.get("approvedAt")
+#                 or loan.get("created_at")
+#                 or loan.get("createdAt")
+#             )
+
+#             loan_date = format_date(
+#                 loan_date
+#             )
+
+#             # -------------------------------------------------
+#             # Original/direct agent
+#             # -------------------------------------------------
+
+#             loan_agent_id = (
+#                 loan.get("agent_id")
+#             )
+
+#             if isinstance(
+#                 loan_agent_id,
+#                 ObjectId
+#             ):
+#                 loan_agent_id = str(
+#                     loan_agent_id
+#                 )
+#             elif loan_agent_id:
+#                 loan_agent_id = str(
+#                     loan_agent_id
+#                 )
+
+#             direct_agent = get_agent(
+#                 loan_agent_id
+#             )
+
+#             direct_agent_name = get_agent_name(
+#                 direct_agent
+#             )
+
+#             # -------------------------------------------------
+#             # Calculate LIVE paid EMI
+#             # -------------------------------------------------
+
+#             emi_data = get_loan_paid_emi(
+#                 loan
+#             )
+
+#             paid_emi_amount = emi_data[
+#                 "paid_emi_amount"
+#             ]
+
+#             paid_emi_count = emi_data[
+#                 "paid_emi_count"
+#             ]
+
+#             # -------------------------------------------------
+#             # Loan total commission
+#             # -------------------------------------------------
+
+#             loan_total_commission = 0
+
+#             loan_commission_details = []
+
+#             # -------------------------------------------------
+#             # Calculate commission for
+#             # Level 1 -> Level 7
+#             # -------------------------------------------------
+
+#             for hierarchy_item in hierarchy:
+
+#                 level = hierarchy_item[
+#                     "level"
+#                 ]
+
+#                 hierarchy_agent_id = (
+#                     hierarchy_item[
+#                         "agent_id"
+#                     ]
+#                 )
+
+#                 hierarchy_agent_name = (
+#                     hierarchy_item[
+#                         "agent_name"
+#                     ]
+#                 )
+
+#                 percentage = COMMISSION_LEVELS.get(
+#                     level,
+#                     0
+#                 )
+
+#                 # ---------------------------------------------
+#                 # Commission
+#                 # ---------------------------------------------
+
+#                 commission = (
+#                     paid_emi_amount
+#                     * percentage
+#                     / 100
+#                 )
+
+#                 commission = round(
+#                     commission,
+#                     2
+#                 )
+
+#                 loan_total_commission += (
+#                     commission
+#                 )
+
+#                 # ---------------------------------------------
+#                 # Direct / Referral
+#                 # ---------------------------------------------
+
+#                 if level == 1:
+#                     commission_type = "Direct"
+#                 else:
+#                     commission_type = "Referral"
+
+#                 # ---------------------------------------------
+#                 # Old API style flattened account
+#                 # ---------------------------------------------
+
+#                 account_data = {
+
+#                     "account_number":
+#                         account_number,
+
+#                     "agent_id":
+#                         hierarchy_agent_id,
+
+#                     "agent_name":
+#                         hierarchy_agent_name,
+
+#                     "agent_level":
+#                         level,
+
+#                     "commission_percentage":
+#                         percentage,
+
+#                     "paid_emi_amount":
+#                         round(
+#                             paid_emi_amount,
+#                             2
+#                         ),
+
+#                     "paid_emi_count":
+#                         paid_emi_count,
+
+#                     "commission":
+#                         commission,
+
+#                     "date":
+#                         loan_date,
+
+#                     "member_name":
+#                         member_name,
+
+#                     "remark":
+#                         f"Level {level} commission",
+
+#                     "type":
+#                         commission_type,
+
+#                     # Original loan agent
+#                     "account_agent_id":
+#                         loan_agent_id,
+
+#                     "account_agent_name":
+#                         direct_agent_name
+#                 }
+
+#                 accounts.append(
+#                     account_data
+#                 )
+
+#                 # ---------------------------------------------
+#                 # Detailed loan commission
+#                 # ---------------------------------------------
+
+#                 loan_commission_details.append({
+
+#                     "agent_id":
+#                         hierarchy_agent_id,
+
+#                     "agent_name":
+#                         hierarchy_agent_name,
+
+#                     "level":
+#                         level,
+
+#                     "percentage":
+#                         percentage,
+
+#                     "commission":
+#                         commission
+
+#                 })
+
+#             # =================================================
+#             # LOAN TOTAL
+#             # =================================================
+
+#             loan_total_commission = round(
+#                 loan_total_commission,
+#                 2
+#             )
+
+#             grand_paid_emi += (
+#                 paid_emi_amount
+#             )
+
+#             grand_commission += (
+#                 loan_total_commission
+#             )
+
+#             # -------------------------------------------------
+#             # Loan summary
+#             # -------------------------------------------------
+
+#             loan_summary.append({
+
+#                 "loan_id":
+#                     loan_id,
+
+#                 "account_number":
+#                     account_number,
+
+#                 "member_name":
+#                     member_name,
+
+#                 "loan_agent_id":
+#                     loan_agent_id,
+
+#                 "loan_agent_name":
+#                     direct_agent_name,
+
+#                 "loan_date":
+#                     loan_date,
+
+#                 "paid_emi_count":
+#                     paid_emi_count,
+
+#                 "paid_emi_amount":
+#                     round(
+#                         paid_emi_amount,
+#                         2
+#                     ),
+
+#                 "total_commission":
+#                     loan_total_commission,
+
+#                 "commission_details":
+#                     loan_commission_details
+#             })
+
+#         # =================================================
+#         # FINAL RESPONSE
+#         # =================================================
+
+#         return jsonify({
+
+#             "status": True,
+
+#             "message":
+#                 "Live EMI commission calculated successfully",
+
+#             # Requested agent
+#             "agent": {
+
+#                 "agent_id":
+#                     str(agent.get("_id")),
+
+#                 "agent_code":
+#                     agent.get("agentCode"),
+
+#                 "agent_name":
+#                     get_agent_name(agent)
+
+#             },
+
+#             # Hierarchy
+#             "hierarchy":
+#                 hierarchy,
+
+#             # Old API style flat data
+#             "accounts":
+#                 accounts,
+
+#             # Loan-wise total commission
+#             "loan_summary":
+#                 loan_summary,
+
+#             # Overall summary
+#             "summary": {
+
+#                 "total_loans":
+#                     len(loans),
+
+#                 "total_paid_emi":
+#                     round(
+#                         grand_paid_emi,
+#                         2
+#                     ),
+
+#                 "total_commission":
+#                     round(
+#                         grand_commission,
+#                         2
+#                     )
+
+#             },
+
+#             "len":
+#                 len(accounts)
+
+#         }), 200
+
+#     except Exception as e:
+
+#         import traceback
+
+#         traceback.print_exc()
+
+#         return jsonify({
+
+#             "status": False,
+
+#             "message":
+#                 "Error calculating commission",
+
+#             "error":
+#                 str(e)
+
+#         }), 500
+
+
+@localprime_bp.route(
+    "/agentcommission_latest",
+    methods=["POST"]
+)
+def agentcommission_latest():
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        requested_agent_id = data.get("agent_id")
+
+        if not requested_agent_id:
+            return jsonify({
+                "status": False,
+                "message": "agent_id is required"
+            }), 400
+
+        requested_agent = get_agent(requested_agent_id)
+
+        if not requested_agent:
+            return jsonify({
+                "status": False,
+                "message": "Agent not found"
+            }), 404
+
+        requested_agent_id = str(
+            requested_agent["_id"]
+        )
+
+        # =====================================================
+        # GET ALL LOANS
+        # =====================================================
+
+        loans = list(
+            loan_collection.find({})
+        )
+
+        accounts = []
+        loan_summary = []
+
+        total_commission = 0
+        total_paid_emi = 0
+
+        # =====================================================
+        # LOOP ALL LOANS
+        # =====================================================
+
+        for loan in loans:
+
+            loan_agent_id = loan.get("agent_id")
+
+            if not loan_agent_id:
+                continue
+
+            loan_agent_id = str(
+                loan_agent_id
+            )
+
+            # =================================================
+            # GET HIERARCHY OF LOAN AGENT
+            #
+            # Level 1 = loan agent
+            # Level 2 = its parent
+            # Level 3 = parent's parent
+            # =================================================
+
+            hierarchy = get_agent_hierarchy(
+                loan_agent_id,
+                max_levels=7
+            )
+
+            # =================================================
+            # FIND REQUESTED AGENT IN THIS LOAN HIERARCHY
+            # =================================================
+
+            my_level = None
+            my_agent_data = None
+
+            for item in hierarchy:
+
+                if str(item["agent_id"]) == requested_agent_id:
+
+                    my_level = item["level"]
+                    my_agent_data = item
+
+                    break
+
+            # =================================================
+            # REQUESTED AGENT IS NOT IN THIS LOAN NETWORK
+            # =================================================
+
+            if my_level is None:
+                continue
+
+            # =================================================
+            # GET PAID EMI
+            # =================================================
+
+            emi_data = get_loan_paid_emi(
+                loan
+            )
+
+            paid_emi_amount = float(
+                emi_data.get(
+                    "paid_emi_amount",
+                    0
+                ) or 0
+            )
+
+            paid_emi_count = emi_data.get(
+                "paid_emi_count",
+                0
+            )
+
+            # No paid EMI = no commission
+            if paid_emi_amount <= 0:
+                continue
+
+            # =================================================
+            # COMMISSION %
+            # =================================================
+
+            commission_percentage = COMMISSION_LEVELS.get(
+                my_level,
+                0
+            )
+
+            # =================================================
+            # COMMISSION
+            # =================================================
+
+            commission = round(
+                paid_emi_amount
+                * commission_percentage
+                / 100,
+                2
+            )
+
+            # =================================================
+            # LOAN INFORMATION
+            # =================================================
+
+            account_number = (
+                loan.get("loan_number")
+                or loan.get("loanNumber")
+                or loan.get("account_number")
+                or loan.get("accountNumber")
+                or str(loan["_id"])
+            )
+
+            member_name = get_member_name(
+                loan
+            )
+
+            loan_date = (
+                loan.get("loan_date")
+                or loan.get("loanDate")
+                or loan.get("approved_at")
+                or loan.get("approvedAt")
+                or loan.get("created_at")
+                or loan.get("createdAt")
+            )
+
+            loan_date = format_date(
+                loan_date
+            )
+
+            # =================================================
+            # DIRECT LOAN AGENT
+            # =================================================
+
+            direct_agent = get_agent(
+                loan_agent_id
+            )
+
+            direct_agent_name = get_agent_name(
+                direct_agent
+            )
+
+            # =================================================
+            # COMMISSION TYPE
+            # =================================================
+
+            if my_level == 1:
+                commission_type = "Direct"
+            else:
+                commission_type = "Referral"
+
+            # =================================================
+            # ACCOUNT RECORD
+            # =================================================
+
+            account = {
+
+                # Loan
+                "loan_id":
+                    str(loan["_id"]),
+
+                "account_number":
+                    account_number,
+
+                "member_name":
+                    member_name,
+
+                "loan_date":
+                    loan_date,
+
+                # Loan's original agent
+                "account_agent_id":
+                    loan_agent_id,
+
+                "account_agent_name":
+                    direct_agent_name,
+
+                # Current API agent
+                "agent_id":
+                    requested_agent_id,
+
+                "agent_name":
+                    my_agent_data["agent_name"],
+
+                # Current agent's level
+                "agent_level":
+                    my_level,
+
+                "commission_percentage":
+                    commission_percentage,
+
+                # EMI
+                "paid_emi_count":
+                    paid_emi_count,
+
+                "paid_emi_amount":
+                    round(
+                        paid_emi_amount,
+                        2
+                    ),
+
+                # Commission
+                "commission":
+                    commission,
+
+                "type":
+                    commission_type,
+
+                "remark":
+                    (
+                        f"Level {my_level} "
+                        f"{commission_percentage}% "
+                        f"commission"
+                    )
+            }
+
+            accounts.append(
+                account
+            )
+
+            # =================================================
+            # LOAN SUMMARY
+            # =================================================
+
+            loan_summary.append({
+
+                "loan_id":
+                    str(loan["_id"]),
+
+                "account_number":
+                    account_number,
+
+                "member_name":
+                    member_name,
+
+                "loan_agent_id":
+                    loan_agent_id,
+
+                "loan_agent_name":
+                    direct_agent_name,
+
+                "loan_date":
+                    loan_date,
+
+                "agent_id":
+                    requested_agent_id,
+
+                "agent_name":
+                    my_agent_data["agent_name"],
+
+                "agent_level":
+                    my_level,
+
+                "commission_percentage":
+                    commission_percentage,
+
+                "paid_emi_count":
+                    paid_emi_count,
+
+                "paid_emi_amount":
+                    round(
+                        paid_emi_amount,
+                        2
+                    ),
+
+                "commission":
+                    commission
+            })
+
+            # =================================================
+            # TOTAL
+            # =================================================
+
+            total_paid_emi += (
+                paid_emi_amount
+            )
+
+            total_commission += (
+                commission
+            )
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
+        return jsonify({
+
+            "status": True,
+
+            "message":
+                "Live referral commission calculated successfully",
+
+            "agent": {
+
+                "agent_id":
+                    requested_agent_id,
+
+                "agent_code":
+                    requested_agent.get(
+                        "agentCode"
+                    ),
+
+                "agent_name":
+                    get_agent_name(
+                        requested_agent
+                    )
+            },
+
+            "summary": {
+
+                "total_loans":
+                    len(loan_summary),
+
+                "total_paid_emi":
+                    round(
+                        total_paid_emi,
+                        2
+                    ),
+
+                "total_commission":
+                    round(
+                        total_commission,
+                        2
+                    )
+            },
+
+            "loan_summary":
+                loan_summary,
+
+            "accounts":
+                accounts,
+
+            "len":
+                len(accounts)
+
+        }), 200
+
+    except Exception as e:
+
+        import traceback
+        traceback.print_exc()
+
+        return jsonify({
+
+            "status": False,
+
+            "message":
+                "Error calculating commission",
+
+            "error":
+                str(e)
+
         }), 500
