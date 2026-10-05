@@ -23,7 +23,7 @@ templog = db["logs"]
 admin = db["admin"] 
 templog2 = db["tempdata"]
 
-headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
 phone_id = '563776386825270'
 
 
@@ -1095,7 +1095,7 @@ def dr_advance_success_appointment(name,phone,payment_id,number):
 
 def imagesend(whatsapp_no):
 
-    WHATSAPP_ACCESS_TOKEN = "EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD"
+    WHATSAPP_ACCESS_TOKEN = "EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD"
     PDF_FILE_PATH = 'img.jpg'
 
     PHONE_NUMBER_ID = "563776386825270"
