@@ -609,7 +609,7 @@ def new_flow(from_number,btn_type):
         date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y")
 
 
-        headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+        headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
         external_url = "https://graph.facebook.com/v22.0/563776386825270/messages" 
 
         incoming_data = {
@@ -639,7 +639,7 @@ def new_flow(from_number,btn_type):
 
 
 
-        headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+        headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
         external_url = "https://graph.facebook.com/v22.0/563776386825270/messages" 
 
         now = datetime.now(ZoneInfo("Asia/Kolkata"))
@@ -3119,7 +3119,7 @@ def v1_excel_razorpay_tax():
 
 from razorpay_local import pay_link
 def opd_msg(from_number,name,no,date,time):
-    headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+    headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
     external_url = "https://graph.facebook.com/v22.0/563776386825270/messages"  # Example API URL
     incoming_data = { 
   "messaging_product": "whatsapp", 
@@ -3977,7 +3977,7 @@ def manage_opd_requests():
         return jsonify({"error": str(e)}), 500
 
 
-headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
 phone_id = '563776386825270'
 
 
@@ -4542,7 +4542,7 @@ def stop_current_booking_request(id):
 
 def hi_reply(from_number):
     from datetime import datetime, timedelta, time
-    headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+    headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
     external_url = "https://graph.facebook.com/v22.0/563776386825270/messages" 
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
 
@@ -4773,7 +4773,7 @@ def getNumberToSlot(num):
 
 
 def cd_url(fm):
-    headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+    headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
     external_url = "https://graph.facebook.com/v22.0/563776386825270/messages"
     incoming_data ={
   "messaging_product": "whatsapp",
@@ -4797,7 +4797,7 @@ def cd_url(fm):
     return 'ok',200
 
 def refund_url(fm):
-    headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+    headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
     external_url = "https://graph.facebook.com/v22.0/563776386825270/messages"
     incoming_data ={
   "messaging_product": "whatsapp",
@@ -4864,7 +4864,7 @@ def delete_copd_time(id,fromnumber):
         if result.matched_count == 0:
             return jsonify({"success": False, "message": "Doctor not found"}), 404
         
-        headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+        headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
         external_url = "https://graph.facebook.com/v22.0/563776386825270/messages"
         incoming_data ={
   "messaging_product": "whatsapp",
@@ -4896,7 +4896,7 @@ def update_status_copd(id, fromnumber):
         if result.matched_count == 0:
             return jsonify({"success": False, "message": "Doctor not found"}), 404
         
-        headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+        headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
         external_url = "https://graph.facebook.com/v22.0/563776386825270/messages"
         incoming_data ={
   "messaging_product": "whatsapp",
@@ -4917,7 +4917,7 @@ def update_status_copd(id, fromnumber):
     
 
 
-headers={'Authorization': 'Bearer EACHqNPEWKbkBO33utbtE1EMW5T1B8KlYqSpLDepuZCdrEY9unIfGmwnlZB4XgfEFQw2ohjGAAoBL1OHY08kftSW0ZBEvX5eXIodrY2gghys3IEoyoKwZCvHh0ZBd7I6eB9ttTEV1fsghWvpzycfIr5pIVIeftLpO0jlFLp9FZB31dd48QZCzmYSxSvKuIFkZAOlchwZDZD','Content-Type': 'application/json'}
+headers={'Authorization': 'Bearer EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD','Content-Type': 'application/json'}
 external_url = "https://graph.facebook.com/v22.0/563776386825270/messages"
 
 @app.route("/v1/send-stop-booking/<string:id>", methods=["POST"])
