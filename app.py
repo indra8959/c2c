@@ -6,6 +6,7 @@ import time
 import json
 # import datetime
 from receipt import receiptme
+from pymongo.errors import PyMongoError
 from appoint_flow import book_appointment, sendthankyou, appointment_flow, success_appointment,old_user_send,custom_appointment_flow,same_name,send_selection,send_selection_enroll, send_pdf_utility, appointment_flow_expire,send_payment_flow, appointment_flow_advance, dr_advance_success_appointment
 from bson.objectid import ObjectId
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -866,17 +867,33 @@ def meta_logs():
 @app.route("/add_user", methods=["POST"])
 def add_user_query():
     try:
-        # api_key = request.headers.get("x-api-key")
-        # if api_key != API_KEY:
-        #     return jsonify({"error": "Unauthorized"}), 401
-        data = request.json
-        # password = data.get("password")
-        # hashed_password = generate_password_hash(password)
-        # data["password"] = hashed_password 
-        result = doctors.insert_one(data).inserted_id
-        return jsonify({"inserted_id": str(result)}), 200
+        data = request.get_json(silent=True)
+
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "Request body must contain valid JSON"
+            }), 400
+
+        result = doctors.insert_one(data)
+
+        return jsonify({
+            "success": True,
+            "message": "User added successfully",
+            "inserted_id": str(result.inserted_id)
+        }), 201
+
+    except PyMongoError as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
     
 # @app.route("/slot_disable", methods=["POST"])
 # def slot_disable():
@@ -1176,22 +1193,57 @@ def refund_appointment_user(pdate):
 @app.route("/update_user/<string:id>/", methods=["POST"])
 def update_user_query(id):
     try:
-        # api_key = request.headers.get("x-api-key")
-        # if api_key != API_KEY:
-        #     return jsonify({"error": "Unauthorized"}), 401
-        data = request.json
-        try:
-            doc_id = ObjectId(id)
-        except:
-            return jsonify({"error": "Invalid ObjectId"}), 400
-        result = doctors.update_one({'_id': doc_id}, {'$set': data})
+        data = request.get_json(silent=True)
+
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "Request body must contain valid JSON"
+            }), 400
+
+        if not ObjectId.is_valid(id):
+            return jsonify({
+                "success": False,
+                "error": "Invalid ObjectId"
+            }), 400
+
+        # Prevent accidental modification of MongoDB document ID
+        data.pop("_id", None)
+
+        result = doctors.update_one(
+            {"_id": ObjectId(id)},
+            {"$set": data}
+        )
+
         if result.matched_count == 0:
-            return jsonify({"error": "User not found"}), 404
-        elif result.modified_count == 0:
-            return jsonify({"message": "No changes made"}), 200
-        return jsonify({'success': True, "message": "User updated"}), 200
+            return jsonify({
+                "success": False,
+                "error": "User not found"
+            }), 404
+
+        if result.modified_count == 0:
+            return jsonify({
+                "success": True,
+                "message": "No changes made"
+            }), 200
+
+        return jsonify({
+            "success": True,
+            "message": "User updated successfully",
+            "modified_count": result.modified_count
+        }), 200
+
+    except PyMongoError as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
     
 @app.route("/update_appointment/<string:id>/", methods=["POST"])
 def update_appointment_query(id):
