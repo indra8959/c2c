@@ -43,6 +43,7 @@ from doctors.functions.settlement import function_settlement
 from doctors.functions.doctor_payble import send_doctor_vouchers_excel,report_reply
 
 from api_files.badri_computers.routes import badri_enterprises
+from doctors.functions.attedance import attendence
 
 app = Flask(__name__)
 CORS(app)
