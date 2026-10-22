@@ -1,27 +1,34 @@
 from pydoc import doc
 
 from flask import Flask, app, request, jsonify, Blueprint,send_file,render_template
+from pymongo.errors import DuplicateKeyError, PyMongoError
 import requests
 import random
 from pymongo import MongoClient
-from datetime import datetime, timedelta, timezone
+
+from datetime import datetime, timedelta, timezone , date
 from bson import ObjectId
 from api_files.c2c_mobile_app.firebase_service import send_push_notification,send_bulk_notifications
-
+from pymongo import ReturnDocument
 import os
 import time
+from zoneinfo import ZoneInfo
+import re
+
 
 c2c_app = Blueprint("c2c_app", __name__)
 
 
 # MongoDB connection
 client = MongoClient("mongodb+srv://care2connect:connect0011@cluster0.gjjanvi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-db = client["app_db"]
+db = client["caredb"]
+# db = client["app_db"]
 otp_collection = db["otp_store"]
 users_collection = db["users"]
 appointment = db["appointment"]
 doctors = db["doctors"]
 medicine_orders_collection= db["medicine_orders"]
+doctor_counters = db["counters"]
 
 # Create TTL index (auto delete after 2 minutes)
 otp_collection.create_index("created_at", expireAfterSeconds=120)
@@ -1139,7 +1146,12 @@ def get_appointments(m):
                 "status": get_status(item.get("date_of_appointment"), item.get("time_slot")),
                 "pay_id": item.get("pay_id"),
                 "appointmentNo": item.get("appointment_index"),
-                'createdAt':item.get('createdAt')
+                'createdAt':item.get('createdAt'),
+                'state':item.get('state',"NA"),
+                'city':item.get('city',"NA"),
+                'address':item.get('address',"NA"),
+                'pincode':item.get('pincode',"NA"),
+                'email':item.get('email',"NA"),
             })
         if status:
             appointments = [a for a in appointments if a.get('status') == status]
@@ -1238,8 +1250,11 @@ import razorpay
 import hmac
 import hashlib
 
-RAZORPAY_KEY_ID = "rzp_test_T2ahUWS4UB3qoh"
-RAZORPAY_KEY_SECRET = "swPZlBJaDZDjwouAxFSLVoGO"
+# RAZORPAY_KEY_ID = "rzp_live_R9tGl7bLSIBV6f"
+# RAZORPAY_KEY_SECRET = "dTvrApHzGc2VGCw8olP3xVOL"
+
+RAZORPAY_KEY_ID = "rzp_test_TlMQdAmmaO6PuE"
+RAZORPAY_KEY_SECRET = "XwNvd7hpUY5UK06F81X64RCR"
 
 # ---------- Razorpay Client ----------
 razorpay_client = razorpay.Client(
@@ -1255,7 +1270,6 @@ def web_create_order():
         mobile = data.get("mobile", "")
         doctor_id = data.get("doctor_id", "")
         from_number = "91" + mobile if len(mobile) == 10 else mobile
-
 
         print("Received data:", 7)
 
@@ -1281,6 +1295,8 @@ def web_create_order():
                 'kalra_id': 'xx',
                 'appointmenttype': 'current',
 
+                'agent_id': data.get("agent_id", "User"),
+
                 'patient_name': data.get("patient_name", "User"),
                 'guardian_name': data.get("father_name", "User"),
                 'date_of_appointment': data.get("date", "User"),
@@ -1295,7 +1311,9 @@ def web_create_order():
                 'whatsapp_number': from_number,
                 'date_of_birth': data.get("dob", "User"),
                 'city': data.get("city", "none"),
-                'address': data.get("address", "none"),
+                'state': data.get("state", "none"),
+                'pincode': data.get("pincode", "none"),
+                'address': data.get("address", "none"), 
 
                 'role': 'appointment',
                 'status': 'created',
@@ -1340,7 +1358,8 @@ def verify_payment():
             # appointment.update_one({'payment_link': order_id},{'$set':{'payment_status':'paid','status':'success','pay_id':payment_id,'appoint_number':'001','amount':float(100),'appointment_index':1}})
 
             # return jsonify({"status": "success"})
-            retrieved_data = appointment.find_one({"payment_link": order_id})
+            # retrieved_data = appointment.find_one({"payment_link": order_id})
+            retrieved_data = appointment.find_one({"razorpay_url": order_id})
 
             if not retrieved_data:
                 return jsonify({"status": "failure"}), 400
@@ -1366,9 +1385,12 @@ def verify_payment():
             # ):
 
             appointment.update_one(
+                # {
+                #     "payment_link": order_id
+                # },
                 {
-                    "payment_link": order_id
-                },
+                                    "razorpay_url": order_id
+                                },
                 {
                     "$set": {
 
@@ -1390,7 +1412,7 @@ def verify_payment():
             )
 
             print("PAYMENT SUCCESS")
-            return jsonify({"status": "success"}),200
+            return jsonify({"status": "success","appointment_index": index_number,"payment_id": str(payment_id), "amount": float(amount)}),200
 
         else:
             return jsonify({"status": "failure"}), 400
@@ -1399,6 +1421,561 @@ def verify_payment():
             "success": False,
             "error": str(e)
         }
+
+
+#agent appointments
+
+import secrets
+import string
+
+def generate_identity_id():
+    characters = string.ascii_letters + string.digits
+    unique_part = ''.join(secrets.choice(characters) for _ in range(13))
+    return f"wlt_{unique_part}"
+
+# Example
+
+def make_c2c_voucher(payment_id, fee,pfee,doctorfee, phone, doctor_id):
+    vouchers = db["vouchers"]
+    try:
+    
+            duplicatepayment = vouchers.find_one({'Payment_id': payment_id})
+            if not duplicatepayment:
+    
+                    # Current time in UTC (GMT)
+                utc_now = datetime.now(ZoneInfo("UTC"))
+                ist_now = utc_now.astimezone(ZoneInfo("Asia/Kolkata"))
+    
+                    
+                voucher_date = datetime.now(ZoneInfo("Asia/Kolkata"))
+                date_str = voucher_date.strftime("%Y-%m-%d")
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                start = datetime(date_obj.year, date_obj.month, date_obj.day)
+                end = start + timedelta(days=1)
+        
+                voucher_number_index = "JRV-"+ str(date_str)
+                count_txn = vouchers.count_documents({})
+                count = vouchers.count_documents({
+                    "voucher_type": "Journal",
+                    "voucher_mode": "Journal",
+                    "voucher_number_index": voucher_number_index   # between start and end of day
+                })
+        
+                voucher_number = "JRV-"+ str(date_str) +'-'+ str(count + 1)
+                voucher = {
+                            "voucher_number_index" : voucher_number_index,
+                            "amount":float(fee),
+                            "voucher_number": voucher_number,
+                            "voucher_type": 'Journal',
+                            "voucher_mode": "Journal",
+                            "txn": count_txn + 1,
+                            "doctor_id": doctor_id,
+                            "from_id": phone,
+                            "to_id": payment_id,
+                            "date": datetime.now(ZoneInfo("Asia/Kolkata")),
+                            "Payment_id": payment_id,
+                            "narration": 'Appointment Fee',
+                            "entries": [
+    
+                                    {
+                        "narration": "Appointment Fee",
+                        "ledger_id": "A15",
+                        "ledger_name": "Receivable from Channel Partners",
+                        "debit": float(fee),
+                        "credit": 0,
+                        "employee_id": "LocalPrime",
+                        "employee_name": "Local Prime"
+                        },
+                        {
+                        "narration": "Appointment Fee",
+                        "ledger_id": "A2",
+                        "ledger_name": "Doctor Fee Payble",
+                        "debit": 0,
+                        "credit": float(doctorfee)
+                        },
+                        {
+                        "narration": "Appointment Fee",
+                        "ledger_id": "A3",
+                        "ledger_name": "Platform Fee",
+                        "debit": 0,
+                        "credit": float(pfee)-(float(pfee) * 18 / 118)
+                        },
+                        {
+                        "narration": "Appointment Fee",
+                        "ledger_id": "A12",
+                        "ledger_name": "CGST",
+                        "debit": 0,
+                        "credit":(float(pfee) * 18 / 118)/2
+                        },
+                         {
+                        "narration": "Appointment Fee",
+                        "ledger_id": "A13",
+                        "ledger_name": "SGST",
+                        "debit": 0,
+                        "credit": (float(pfee) * 18 / 118)/2
+                        }     
+                        ],
+                            "created_by": "system",
+                            "created_at": ist_now
+                        }
+                vouchers.insert_one(voucher)
+    except:
+            print(2)
+
+
+@c2c_app.route("/agent-create-order", methods=["POST"])
+def agent_create_order():
+    try:
+        from api_files.badri_computers.trade import db as trade_db
+        from api_files.badri_computers.localprime import get_next_sequence, create_wallet_voucher,create_appointment_wallet_voucher
+
+        data = request.get_json() or {}
+
+        mobile = data.get("mobile", "")
+        doctor_id = data.get("doctor_id", "")
+        agent_id = data.get("agent_id")
+        wallet_id = data.get("wallet_id")
+
+
+        if not agent_id and not wallet_id:
+            return jsonify({
+                "success": False,
+                "error": "agent_id or wallet_id is required"
+            }), 400
+
+        if not doctor_id:
+            return jsonify({
+                "success": False,
+                "error": "doctor_id is required"
+            }), 400
+
+        try:
+            doctor = doctors.find_one({'_id': ObjectId(doctor_id)})
+        except Exception:
+            return jsonify({
+                "success": False,
+                "error": "Invalid doctor_id"
+            }), 400
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "error": "Doctor not found"
+            }), 404
+
+        # Calculate fee
+        if data.get("amount") is not None:
+            try:
+                fee = float(data.get("amount"))
+            except (ValueError, TypeError):
+                fee = float(doctor.get('appointmentfee', 0) or 0)
+        else:
+            raw_fee = doctor.get('appointmentfee', 0)
+            fee = float(raw_fee) if raw_fee else 0.0
+
+        # Find agent's wallet
+        wallet_type = data.get("wallet_type", "").lower()
+        wallet = None
+        is_saving_wallet = False
+
+        if wallet_type == "saving":
+            if wallet_id:
+                try:
+                    wallet = trade_db.saving_wallets.find_one({"_id": ObjectId(wallet_id)})
+                except Exception:
+                    wallet = None
+            if not wallet and agent_id and agent_id != "User":
+                try:
+                    wallet = trade_db.saving_wallets.find_one({"agent_id": ObjectId(agent_id)})
+                except Exception:
+                    wallet = None
+                if not wallet:
+                    wallet = trade_db.saving_wallets.find_one({"agent_id": str(agent_id)})
+            if wallet:
+                is_saving_wallet = True
+        else:
+            if wallet_id:
+                try:
+                    wallet = trade_db.wallets.find_one({"_id": ObjectId(wallet_id)})
+                except Exception:
+                    wallet = None
+                if not wallet:
+                    try:
+                        wallet = trade_db.saving_wallets.find_one({"_id": ObjectId(wallet_id)})
+                        if wallet:
+                            is_saving_wallet = True
+                    except Exception:
+                        wallet = None
+
+            if not wallet and agent_id and agent_id != "User":
+                try:
+                    wallet = trade_db.wallets.find_one({"agent_id": ObjectId(agent_id)})
+                except Exception:
+                    wallet = None
+                if not wallet:
+                    wallet = trade_db.wallets.find_one({"agent_id": str(agent_id)})
+                if not wallet:
+                    try:
+                        wallet = trade_db.saving_wallets.find_one({"agent_id": ObjectId(agent_id)})
+                    except Exception:
+                        wallet = None
+                    if not wallet:
+                        wallet = trade_db.saving_wallets.find_one({"agent_id": str(agent_id)})
+                    if wallet:
+                        is_saving_wallet = True
+
+        if not wallet:
+            return jsonify({
+                "success": False,
+                "error": "Wallet not found for this agent"
+            }), 404
+
+        if wallet.get("status") != "active":
+            return jsonify({
+                "success": False,
+                "error": "Wallet is not active"
+            }), 400
+
+        if is_saving_wallet:
+            available_balance = float(wallet.get("balance", 0.0))
+            if fee > available_balance:
+                return jsonify({
+                    "success": False,
+                    "error": "Insufficient saving wallet balance",
+                    "balance": available_balance,
+                    "requestedAmount": fee
+                }), 400
+        else:
+            available_credit = float(wallet.get("availableCredit", 0))
+            if fee > available_credit:
+                return jsonify({
+                    "success": False,
+                    "error": "Credit limit exceeded / Insufficient wallet balance",
+                    "creditLimit": wallet.get("creditLimit", 0),
+                    "usedCredit": wallet.get("usedCredit", 0),
+                    "availableCredit": available_credit,
+                    "requestedAmount": fee
+                }), 400
+
+        from_number = "91" + mobile if len(mobile) == 10 else mobile
+
+        # Date and appointment numbering
+        xdate = data.get("date", "User")
+        try:
+            date_obj = datetime.strptime(xdate, "%Y-%m-%d")
+            formatted_date = date_obj.strftime("%Y%m%d")
+        except Exception:
+            formatted_date = datetime.utcnow().strftime("%Y%m%d")
+
+        result = list(appointment.find({
+            "doctor_phone_id": str(doctor_id),
+            "date_of_appointment": xdate,
+            "amount": {"$gt": -1}
+        }, {"_id": 0}))
+
+        data_length = 1
+        if result:
+            data_length = len(result) + 1
+
+        appoint_number = str(formatted_date) + '-' + str(data_length)
+
+        try:
+            index_number = getindex(str(doctor_id), data.get("time", "User"), xdate)
+        except Exception:
+            index_number = data_length
+
+        now = datetime.utcnow()
+        razorpay_url = generate_identity_id()
+
+        dataset = {
+            'kalra_id': 'xx',
+            'appointmenttype': 'current',
+            'agent_id': str(data.get("agentCode", "NA")),
+            'patient_name': data.get("patient_name", "User"),
+            'guardian_name': data.get("father_name", "User"),
+            'date_of_appointment': xdate,
+            'time_slot': data.get("time", "User"),
+            'doctor_phone_id': str(doctor_id),
+            'email': data.get("email", "User"),
+            'symptoms': data.get("symptoms", "User"),
+            'age': data.get("age", "User"),
+            'timestamp': data.get("timestamp", "User"),
+            'whatsapp_number': from_number,
+            'date_of_birth': data.get("dob", "User"),
+            'city': data.get("city", "none"),
+            'state': data.get("state", "none"),
+            'pincode': data.get("pincode", "none"),
+            'address': data.get("address", "none"),
+            'role': 'appointment',
+            'status': 'success',
+            "createdAt": now,
+            "sex": data.get("sex", "User"),
+            "vaccine": "No",
+            'razorpay_url': razorpay_url,
+            'pay_id': razorpay_url,
+            'paid_at': now,
+            'payment_status': 'paid',
+            'itype': 'test',
+            'amount': float(fee),
+            'appoint_number': appoint_number,
+            'appointment_index': index_number,
+            'wallet_id': str(wallet["_id"]),
+            'wallet_number': wallet.get("walletNumber"),
+            'wallet_type': "saving" if is_saving_wallet else "credit"
+        }
+
+        # Wallet deduction, voucher, and transaction
+        voucher = None
+        transaction = None
+
+        new_available_credit = None
+        new_balance = None
+
+        if fee > 0:
+            patient_name = dataset.get("patient_name", "User")
+            narration = data.get("remarks") or f"Appointment booking - {appoint_number} for {patient_name}"
+            created_by = data.get("created_by") or str(wallet.get("agent_id", "admin"))
+
+            markup_amount = float(data.get("markup_amount", 0.0))
+
+            voucher = create_appointment_wallet_voucher(
+                wallet=wallet,
+                amount=fee,
+                markup_amount=markup_amount,
+                voucher_type="Journal",
+                voucher_mode="Journal",
+                narration=narration,
+                credit_ledger_id="A43",
+                credit_ledger_name="Payable to Service Providers",
+                credit_ledger_id2="A45",
+                credit_ledger_name2="Service Fees",
+                debit_ledger_id="A44",
+                debit_ledger_name="Advance from Channel Partners",
+                created_by=created_by
+            )
+
+            pfee = float(doctor.get('platformfee', 0) or 0)
+            doctorfee = float(doctor.get('doctorfee', 0) or 0)
+            make_c2c_voucher(payment_id=razorpay_url, fee=fee, pfee=pfee , doctorfee=doctorfee, phone=from_number, doctor_id=str(doctor_id))
+            fee = float(fee) + float(markup_amount)
+
+            if is_saving_wallet:
+                curr_balance = float(wallet.get("balance", 0.0))
+                new_balance = round(curr_balance - fee, 2)
+                new_available_credit = None
+                new_total_withdraw = round(float(wallet.get("totalWithdraw", 0.0)) + fee, 2)
+
+                trade_db.saving_wallets.update_one(
+                    {"_id": wallet["_id"]},
+                    {
+                        "$set": {
+                            "balance": new_balance,
+                            "totalWithdraw": new_total_withdraw,
+                            "updated_at": now
+                        }
+                    }
+                )
+
+                transaction_seq = get_next_sequence("savingWalletTransaction")
+                transaction = {
+                    "transactionNumber": f"SWT{transaction_seq:08d}",
+                    "wallet_id": wallet["_id"],
+                    "walletNumber": wallet.get("walletNumber"),
+                    "agent_id": wallet.get("agent_id"),
+                    "agentCode": wallet.get("agentCode"),
+                    "agentName": wallet.get("agentName"),
+                    "type": "withdraw",
+                    "amount": fee,
+                    "balanceBefore": curr_balance,
+                    "balanceAfter": new_balance,
+                    "voucher_id": voucher["_id"],
+                    "voucher_number": voucher["voucher_number"],
+                    "remarks": narration,
+                    "status": "success",
+                    "created_at": now
+                }
+                trade_db.saving_wallet_transactions.insert_one(transaction)
+
+            else:
+                old_used_credit = float(wallet.get("usedCredit", 0))
+                new_used_credit = round(old_used_credit + fee, 2)
+                new_available_credit = round(float(wallet.get("creditLimit", 0)) - new_used_credit, 2)
+                new_total_withdraw = round(float(wallet.get("totalWithdraw", 0)) + fee, 2)
+
+                # 1. Update wallet balance
+                trade_db.wallets.update_one(
+                    {"_id": wallet["_id"]},
+                    {
+                        "$set": {
+                            "usedCredit": new_used_credit,
+                            "availableCredit": new_available_credit,
+                            "totalWithdraw": new_total_withdraw,
+                            "updated_at": now
+                        }
+                    }
+                )
+
+                # 3. Create wallet transaction
+                transaction_seq = get_next_sequence("walletTransaction")
+                transaction = {
+                    "transactionNumber": f"WT{transaction_seq:08d}",
+                    "wallet_id": wallet["_id"],
+                    "walletNumber": wallet.get("walletNumber"),
+                    "agent_id": wallet.get("agent_id"),
+                    "agentCode": wallet.get("agentCode"),
+                    "agentName": wallet.get("agentName"),
+                    "type": "withdraw",
+                    "amount": fee,
+                    "balanceBefore": old_used_credit,
+                    "balanceAfter": new_used_credit,
+                    "availableCreditBefore": available_credit,
+                    "availableCreditAfter": new_available_credit,
+                    "voucher_id": voucher["_id"],
+                    "voucher_number": voucher["voucher_number"],
+                    "remarks": narration,
+                    "status": "success",
+                    "created_at": now
+                }
+                trade_db.wallet_transactions.insert_one(transaction)
+
+            dataset["voucher_id"] = voucher["_id"]
+            dataset["voucher_number"] = voucher["voucher_number"]
+            dataset["transaction_number"] = transaction["transactionNumber"]
+
+        # Insert appointment record
+        inserted_id = str(appointment.insert_one(dataset).inserted_id)
+
+        # Link appointment_id to transaction
+        if transaction and "_id" in transaction:
+            target_tx_coll = trade_db.saving_wallet_transactions if is_saving_wallet else trade_db.wallet_transactions
+            target_tx_coll.update_one(
+                {"_id": transaction["_id"]},
+                {"$set": {"appointment_id": inserted_id, "appoint_number": appoint_number}}
+            )
+
+        
+        
+
+        return jsonify({
+    "success": True,
+    "inserted_id": inserted_id,
+    "appoint_number": appoint_number,
+    "wallet_number": wallet.get("walletNumber"),
+    "wallet_type": "saving" if is_saving_wallet else "credit",
+    "voucher_number": voucher.get("voucher_number") if voucher else None,
+    "transaction_number": transaction.get("transactionNumber") if transaction else None,
+    "available_credit": new_available_credit,
+    "balance": new_balance if is_saving_wallet else None
+}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+
+
+@c2c_app.route("/appointments/agent/<string:agent_id>", methods=["GET"])
+def get_agent_appointments(agent_id):
+    try:
+        agent_id = agent_id.strip()
+
+        if not agent_id:
+            return jsonify({
+                "success": False,
+                "message": "agent_id is required"
+            }), 400
+
+        # Payment status filter
+        payment_status = request.args.get("payment_status", "").strip().lower()
+
+        allowed_statuses = ["paid", "link generated"]
+
+        query = {
+            "agent_id": agent_id,
+            "payment_status": {
+                "$in": [payment_status]
+                if payment_status
+                else allowed_statuses
+            }
+        }
+
+        if payment_status and payment_status not in allowed_statuses:
+            return jsonify({
+                "success": False,
+                "message": "Invalid payment_status. Use 'paid' or 'link generated'."
+            }), 400
+
+        # Created date filters
+        created_from = request.args.get("created_from")
+        created_to = request.args.get("created_to")
+
+        if created_from or created_to:
+            created_filter = {}
+
+            if created_from:
+                start_date = datetime.strptime(
+                    created_from, "%Y-%m-%d"
+                )
+                created_filter["$gte"] = start_date
+
+            if created_to:
+                end_date = datetime.strptime(
+                    created_to, "%Y-%m-%d"
+                ) + timedelta(days=1)
+                created_filter["$lt"] = end_date
+
+            query["createdAt"] = created_filter
+
+        # Fetch appointments, latest first
+        data = list(
+            appointment.find(query).sort("createdAt", -1)
+        )
+
+        appointments = []
+
+        doctor_list = list(doctors.find({"role": "doctor"}))
+
+        doctor_map = {
+            str(doc["_id"]): doc.get("doctor_name")
+            or doc.get("name", "Unknown Doctor")
+            for doc in doctor_list
+        }
+
+        for item in data:
+            doctor_id = str(item.get("doctor_phone_id", ""))
+            item["_id"] = str(item["_id"])
+            item["doctor_name"] = doctor_map.get(
+                doctor_id, "Unknown Doctor"
+            )
+
+            for field in ("createdAt", "paid_at"):
+                if isinstance(item.get(field), datetime):
+                    item[field] = item[field].isoformat()
+
+            appointments.append(item)
+
+        return jsonify({
+            "success": True,
+            "agent_id": agent_id,
+            "total": len(appointments),
+            "filters": {
+                "payment_status": payment_status or "all",
+                "created_from": created_from,
+                "created_to": created_to
+            },
+            "data": appointments
+        }), 200
+
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Invalid date format. Use YYYY-MM-DD."
+        }), 400
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
 
     
 
@@ -1761,6 +2338,30 @@ def create_doctor_request():
             "message": str(e)
         }), 500
 
+
+def generate_doctor_secondary_id(doctor_name):
+    # First letter of doctor's name
+    name = (doctor_name or "").strip()
+
+    if not name:
+        raise ValueError("Doctor name is required")
+
+    first_letter = name[0].upper()
+
+    # Atomic counter: safe for simultaneous approval requests
+    counter = doctor_counters.find_one_and_update(
+        {"_id": "doctor_secondary_id"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER
+    )
+
+    # First generated number = 1001
+    number = 1000 + counter["seq"]
+
+    return f"{first_letter}{number}"
+
+
 @c2c_app.route('/doctor/review/<doctor_id>', methods=['POST'])
 def review_doctor(doctor_id):
     try:
@@ -1811,7 +2412,28 @@ def review_doctor(doctor_id):
             doctor_request["created_at"] = current_time
             doctor_request["status"] = "active"
 
-            doctors.insert_one(doctor_request)
+            # doctors.insert_one(doctor_request)
+
+
+            doctor_name = (
+                doctor_request.get("name")
+                or doctor_request.get("doctor_name")
+                or ""
+            ).strip()
+
+            secondary_id = generate_doctor_secondary_id(doctor_name)
+
+            doctor_request["secondaryId"] = secondary_id
+            doctor_request["role"] = "doctor"
+            doctor_request["status"] = "active"
+
+            # Insert approved doctor into MongoDB
+            result = doctors.insert_one(doctor_request)
+
+            print("Doctor approved successfully")
+            print("Secondary ID:", secondary_id)
+            print("MongoDB ID:", str(result.inserted_id))
+
 
         return jsonify({
             "success": True,
@@ -1850,6 +2472,207 @@ def get_doctor_requests():
             "data": [],
             "message": str(e)
         }), 500
+
+
+
+
+@c2c_app.route("/doctors/by-pincode", methods=["GET"])
+def get_doctors_by_pincode():
+    """
+    GET /c2c_app/doctors/by-pincode?pincode=462016
+
+    Returns active doctors matching the district/city of the PIN code.
+    """
+
+    try:
+        # 1. Get and validate pincode
+        pincode = request.args.get("pincode", "").strip()
+
+        if not pincode:
+            return jsonify({
+                "success": False,
+                "message": "Pincode is required"
+            }), 400
+
+        if not pincode.isdigit() or len(pincode) != 6:
+            return jsonify({
+                "success": False,
+                "message": "Pincode must be a valid 6-digit number"
+            }), 400
+
+        # 2. Fetch PIN-code details with retries
+        postal_url = f"https://api.postalpincode.in/pincode/{pincode}"
+
+        postal_data = None
+        last_error = None
+
+        for attempt in range(3):
+            try:
+                response = requests.get(
+                    postal_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0",
+                        "Accept": "application/json"
+                    },
+                    timeout=(5, 15)
+                )
+
+                response.raise_for_status()
+                postal_data = response.json()
+                break
+
+            except (requests.RequestException, ValueError) as exc:
+                last_error = str(exc)
+                print(
+                    f"Postal API attempt {attempt + 1}/3 failed: "
+                    f"{last_error}"
+                )
+
+                if attempt < 2:
+                    time.sleep(1)
+
+        if postal_data is None:
+            return jsonify({
+                "success": False,
+                "message": "Postal API is temporarily unavailable. Please try again.",
+                "error": last_error
+            }), 502
+
+        # 3. Validate postal API response
+        if (
+            not isinstance(postal_data, list)
+            or not postal_data
+            or postal_data[0].get("Status") != "Success"
+            or not postal_data[0].get("PostOffice")
+        ):
+            return jsonify({
+                "success": False,
+                "message": "Invalid pincode or location not found"
+            }), 404
+
+        # 4. Get district and state
+        post_office = postal_data[0]["PostOffice"][0]
+
+        district = (post_office.get("Block") or "").strip()
+        state = (post_office.get("State") or "").strip()
+
+        if not district:
+            return jsonify({
+                "success": False,
+                "message": "District not found for this pincode"
+            }), 404
+
+        # 5. Search active doctors in MongoDB
+        # Supports doctor names stored as either "name" or "doctor_name".
+        doctor_query = {
+            "clinicAddress.Block": {
+                "$regex": "^" + re.escape(district) + "$",
+                "$options": "i"
+            },
+            "role": "doctor",
+            "status": "active"
+        }
+
+        doctor_cursor = doctors.find(
+            doctor_query,
+            {
+                "_id": 1,
+                "name": 1,
+                "doctor_name": 1,
+                "secondaryId": 1,
+                "appointmentdatelimit": 1,
+                "appointmentfee": 1,
+                "specialization": 1
+            }
+        )
+
+        # 6. Prepare response
+        doctor_list = []
+
+        for doctor in doctor_cursor:
+            doctor_name = (
+                doctor.get("doctor_name")
+                or doctor.get("name")
+                or "Unknown Doctor"
+            )
+
+            doctor_list.append({
+                "mongoid": str(doctor["_id"]),
+                "doctor_name": doctor_name,
+                "secondaryId": doctor.get("secondaryId"),
+                "appointmentdatelimit": doctor.get("appointmentdatelimit"),
+                "appointmentfee": doctor.get("appointmentfee"),
+                "specialization": doctor.get("specialization"),
+            })
+
+        return jsonify({
+            "success": True,
+            "message": "Doctors fetched successfully",
+            "pincode": pincode,
+            "city": district,
+            "district": district,
+            "state": state,
+            "total": len(doctor_list),
+            "data": doctor_list
+        }), 200
+
+    except Exception as exc:
+        print(f"Error in get_doctors_by_pincode: {exc}")
+
+        return jsonify({
+            "success": False,
+            "message": "Failed to fetch doctors",
+            "error": str(exc)
+        }), 500
+
+
+@c2c_app.route("/doctors/by-secondary-id", methods=["GET"])
+def get_doctor_by_secondary_id():
+    try:
+        secondary_id = request.args.get("secondaryId", "").strip().upper()
+
+        if not secondary_id:
+            return jsonify({
+                "success": False,
+                "message": "secondaryId is required"
+            }), 400
+
+        doctor = doctors.find_one(
+            {"secondaryId": secondary_id},
+            {"_id": 1, "secondaryId": 1, "name": 1, "doctor_name": 1,"appointmentdatelimit": 1, "appointmentfee": 1, "specialization": 1}
+        )
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": "Doctor fetched successfully",
+            "data": {
+                "mongoid": str(doctor["_id"]),
+                "secondaryId": doctor.get("secondaryId"),
+                "appointmentdatelimit": doctor.get("appointmentdatelimit"),
+                "appointmentfee": doctor.get("appointmentfee"),
+                "specialization": doctor.get("specialization"),
+                "doctor_name": (
+                    doctor.get("doctor_name")
+                    or doctor.get("name")
+                    or "Unknown Doctor"
+                )
+            }
+        }), 200
+
+    except Exception as e:
+        print("Get doctor by secondaryId error:", str(e))
+        return jsonify({
+            "success": False,
+            "message": "Failed to fetch doctor",
+            "error": str(e)
+        }), 500
+
     
 @c2c_app.route('/doctors', methods=['GET'])
 def get_doctors_list():
@@ -3363,3 +4186,1548 @@ def send_bulk_notification():
             "Internal server error",
             "error": str(e)
         }), 500
+
+
+
+
+# from decimal import Decimal, InvalidOperation
+# @c2c_app.route("/api/create-payment-link", methods=["POST"])
+# def create_payment_link():
+#     try:
+#         data = request.get_json(silent=True) or {}
+
+#         amount = data.get("amount")
+#         name = data.get("name")
+#         mobile = data.get("mobile")
+#         email = data.get("email")
+#         description = data.get("description", "Online Payment")
+#         reference_id = data.get("reference_id")
+
+#         # Required fields validation
+#         if amount is None or not name or not mobile:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "amount, name and mobile are required"
+#             }), 400
+
+#         # Convert rupees into paise safely
+#         try:
+#             amount_rupees = Decimal(str(amount))
+#             if not amount_rupees.is_finite() or amount_rupees <= 0:
+#                 raise ValueError("Invalid amount")
+
+#             amount_paise = amount_rupees * 100
+
+#             if amount_paise != amount_paise.to_integral_value():
+#                 raise ValueError("Amount must have at most 2 decimals")
+
+#             amount_paise = int(amount_paise)
+
+#         except (InvalidOperation, ValueError):
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Enter a valid amount in rupees"
+#             }), 400
+
+#         payload = {
+#             "amount": amount_paise,
+#             "currency": "INR",
+#             "accept_partial": False,
+#             "description": str(description)[:2048],
+#             "customer": {
+#                 "name": str(name),
+#                 "contact": str(mobile)
+#             },
+#             "notify": {
+#                 "sms": False,
+#                 "email": False
+#             },
+#             "reminder_enable": False
+#         }
+
+#         if email:
+#             payload["customer"]["email"] = str(email)
+
+#         if reference_id:
+#             reference_id = str(reference_id)
+#             if len(reference_id) > 40:
+#                 return jsonify({
+#                     "success": False,
+#                     "message": "reference_id must be at most 40 characters"
+#                 }), 400
+#             payload["reference_id"] = reference_id
+
+#         payment_link = client.payment_link.create(payload)
+
+
+#         # appointment generate 
+
+
+#         dataset = {
+#                         'kalra_id': 'xx',
+#                         'appointmenttype': 'current',
+        
+#                         'agent_id': data.get("agent_id", "User"),
+        
+#                         'patient_name': data.get("patient_name", "User"),
+#                         'guardian_name': data.get("father_name", "User"),
+#                         'date_of_appointment': data.get("date", "User"),
+#                         'time_slot': data.get("time", "User"),
+        
+#                         'doctor_phone_id': data.get("doctor_id", "User"),
+#                         'email': data.get("email", "User"),
+#                         'symptoms': data.get("symptoms", "User"),
+#                         'age': data.get("age", "User"),
+#                         'timestamp': data.get("timestamp", "User"),
+        
+#                         'whatsapp_number': from_number,
+#                         'date_of_birth': data.get("dob", "User"),
+#                         'city': data.get("city", "none"),
+#                         'state': data.get("state", "none"),
+#                         'pincode': data.get("pincode", "none"),
+#                         'address': data.get("address", "none"), 
+        
+#                         'role': 'appointment',
+#                         'status': 'created',
+#                         "createdAt": datetime.utcnow(),
+        
+#                         "sex": data.get("sex", "User"),
+#                         "vaccine": "No",
+        
+#                         'razorpay_url': link_url,
+#                         'payment_status': 'link generated',
+#                         'itype':'test'
+#                     }
+        
+#         inserted_id = str(appointment.insert_one(dataset).inserted_id)
+
+#         return jsonify({
+#             "success": True,
+#             "message": "Payment link created successfully",
+#             "payment_link_id": payment_link["id"],
+#             "payment_url": payment_link["short_url"],
+#             "amount": float(amount_rupees),
+#             "currency": payment_link["currency"],
+#             "status": payment_link["status"]
+#         }), 201
+
+#     except Exception:
+#         app.logger.exception("Razorpay payment link creation failed")
+#         return jsonify({
+#             "success": False,
+#             "message": "Unable to create payment link"
+#         }), 502
+
+
+
+
+
+from decimal import Decimal, InvalidOperation
+@c2c_app.route("/api/create-payment-link", methods=["POST"])
+def create_payment_link():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        amount = data.get("amount")
+        name = data.get("name") or data.get("patient_name")
+        mobile = str(data.get("mobile") or data.get("whatsapp_number") or "").strip()
+        email = data.get("email")
+        description = data.get("description") or "Appointment Payment"
+        reference_id = data.get("reference_id")
+
+        # 1. Validate required fields
+        if amount is None or not name or not mobile:
+            return jsonify({
+                "success": False,
+                "message": "amount, name/patient_name and mobile/whatsapp_number are required"
+            }), 400
+
+        # 2. Validate amount and convert INR to paise
+        try:
+            amount_rupees = Decimal(str(amount))
+
+            if not amount_rupees.is_finite() or amount_rupees <= 0:
+                raise ValueError()
+
+            amount_paise = amount_rupees * 100
+
+            if amount_paise != amount_paise.to_integral_value():
+                return jsonify({
+                    "success": False,
+                    "message": "Amount must have at most 2 decimal places"
+                }), 400
+
+            amount_paise = int(amount_paise)
+
+        except (InvalidOperation, ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "message": "Enter a valid amount in rupees"
+            }), 400
+
+        # 3. Normalize mobile number
+        if not mobile.isdigit() or len(mobile) not in (10, 12):
+            return jsonify({
+                "success": False,
+                "message": "Enter a valid 10-digit mobile number or 12-digit number with country code"
+            }), 400
+
+        if len(mobile) == 10:
+            from_number = "91" + mobile
+        elif mobile.startswith("91"):
+            from_number = mobile
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Only Indian mobile numbers are supported"
+            }), 400
+
+        # 4. Validate reference ID
+        if reference_id is not None:
+            reference_id = str(reference_id).strip()
+
+            if not reference_id or len(reference_id) > 40:
+                return jsonify({
+                    "success": False,
+                    "message": "reference_id must contain 1-40 characters"
+                }), 400
+
+        # 5. Create Razorpay payment link
+        payload = {
+            "amount": amount_paise,
+            "currency": "INR",
+            "accept_partial": False,
+            "description": str(description)[:2048],
+            "customer": {
+                "name": str(name).strip(),
+                "contact": from_number
+            },
+            "notify": {
+                "sms": False,
+                "email": False
+            },
+            "reminder_enable": False
+        }
+
+        if email:
+            payload["customer"]["email"] = str(email).strip()
+
+        if reference_id:
+            payload["reference_id"] = reference_id
+
+        # IMPORTANT: use the Razorpay client, not the MongoDB client.
+        payment_link = razorpay_client.payment_link.create(payload)
+
+        link_url = payment_link.get("short_url")
+        payment_link_id = payment_link.get("id")
+
+        if not link_url or not payment_link_id:
+            app.logger.error("Razorpay response missing payment link ID or URL")
+            return jsonify({
+                "success": False,
+                "message": "Payment link was not returned by Razorpay"
+            }), 502
+
+        # 6. Create appointment record
+        now = datetime.utcnow()
+
+        dataset = {
+            "appointment_id": str(uuid.uuid4()),
+            "kalra_id": "xx",
+            "appointmenttype": "current",
+
+            "agent_id": str(data.get("agent_id") or "User"),
+
+            "patient_name": str(
+                data.get("patient_name") or name
+            ).strip(),
+            "guardian_name": data.get("father_name")
+                or data.get("guardian_name", ""),
+            "date_of_appointment": data.get("date", ""),
+            "time_slot": data.get("time", ""),
+
+            "doctor_phone_id": str(data.get("doctor_id") or ""),
+            "email": email or "",
+            "symptoms": data.get("symptoms", ""),
+            "age": data.get("age", ""),
+            "timestamp": data.get("timestamp"),
+
+            "whatsapp_number": from_number,
+            "date_of_birth": data.get("dob")
+                or data.get("date_of_birth", ""),
+            "city": data.get("city", ""),
+            "state": data.get("state", ""),
+            "pincode": data.get("pincode", ""),
+            "address": data.get("address", ""),
+
+            "sex": data.get("sex", ""),
+            "vaccine": "No",
+
+            "role": "appointment",
+            "status": "created",
+            "payment_status": "link generated",
+            "payment_required": True,
+
+            # "amount": float(amount_rupees),
+            "currency": "INR",
+
+            "razorpay_url": payment_link_id,
+            "payment_link": link_url,
+            "payment_link_id": payment_link_id,
+
+            "reference_id": reference_id,
+            "createdAt": now,
+            "itype": "test"
+        }
+
+        result = appointment.insert_one(dataset)
+
+        # 7. Return response
+        return jsonify({
+            "success": True,
+            "message": "Payment link and appointment created successfully",
+            "appointment_id": str(result.inserted_id),
+            "appointment_reference": dataset["appointment_id"],
+            "agent_id": dataset["agent_id"],
+            "payment_link_id": payment_link_id,
+            "payment_url": link_url,
+            "amount": float(amount_rupees),
+            "amount_paise": amount_paise,
+            "currency": payment_link.get("currency", "INR"),
+            "payment_status": "link generated",
+            "status": "created"
+        }), 201
+
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Unable to create payment link or save appointment"
+        }), 500
+
+
+
+
+shifts = db["shifts"]
+
+@c2c_app.route("/create_shift", methods=["POST"])
+def create_shift():
+    try:
+        data = request.get_json(silent=True)
+
+        if not isinstance(data, dict) or not data:
+            return jsonify({
+                "success": False,
+                "error": "Valid JSON body is required"
+            }), 400
+
+        required_fields = [
+            "doctor_id",
+            "shift_name",
+            "start_time",
+            "end_time"
+        ]
+
+        missing_fields = [
+            field for field in required_fields
+            if not data.get(field)
+        ]
+
+        if missing_fields:
+            return jsonify({
+                "success": False,
+                "error": "Required fields missing",
+                "fields": missing_fields
+            }), 400
+
+        shift = {
+            "doctor_id": str(data["doctor_id"]).strip(),
+            "shift_name": data["shift_name"].strip(),
+            "start_time": data["start_time"],
+            "end_time": data["end_time"],
+            "description": data.get("description", ""),
+            "status": data.get("status", "active"),
+            "created_at": datetime.utcnow()
+        }
+
+        result = shifts.insert_one(shift)
+
+        return jsonify({
+            "success": True,
+            "message": "Shift created successfully",
+            "shift_id": str(result.inserted_id)
+        }), 201
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@c2c_app.route("/get_shifts/<string:doctor_id>", methods=["GET"])
+def get_shifts_by_doctor(doctor_id):
+    try:
+        data = list(
+            shifts.find({"doctor_id": doctor_id}).sort("created_at", -1)
+        )
+
+        for shift in data:
+            shift["_id"] = str(shift["_id"])
+
+        return jsonify({
+            "success": True,
+            "doctor_id": doctor_id,
+            "count": len(data),
+            "shifts": data
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@c2c_app.route("/delete_shift/<string:id>", methods=["DELETE"])
+def delete_shift(id):
+    try:
+        if not ObjectId.is_valid(id):
+            return jsonify({
+                "success": False,
+                "error": "Invalid Shift ID"
+            }), 400
+
+        result = shifts.delete_one({
+            "_id": ObjectId(id)
+        })
+
+        if result.deleted_count == 0:
+            return jsonify({
+                "success": False,
+                "error": "Shift not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": "Shift deleted successfully"
+        }), 200
+
+    except PyMongoError as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@c2c_app.route("/update_shift/<string:id>", methods=["PUT"])
+def update_shift(id):
+    try:
+        if not ObjectId.is_valid(id):
+            return jsonify({
+                "success": False,
+                "error": "Invalid Shift ID"
+            }), 400
+
+        data = request.get_json(silent=True)
+
+        if not isinstance(data, dict) or not data:
+            return jsonify({
+                "success": False,
+                "error": "Valid JSON body is required"
+            }), 400
+
+        allowed_fields = [
+            "shift_name",
+            "start_time",
+            "end_time",
+            "description",
+            "status"
+        ]
+
+        update_data = {
+            key: value
+            for key, value in data.items()
+            if key in allowed_fields
+        }
+
+        if not update_data:
+            return jsonify({
+                "success": False,
+                "error": "No valid fields provided for update"
+            }), 400
+
+        if "shift_name" in update_data:
+            if not isinstance(update_data["shift_name"], str) or not update_data["shift_name"].strip():
+                return jsonify({
+                    "success": False,
+                    "error": "shift_name must be a non-empty string"
+                }), 400
+            update_data["shift_name"] = update_data["shift_name"].strip()
+
+        result = shifts.update_one(
+            {"_id": ObjectId(id)},
+            {"$set": update_data}
+        )
+
+        if result.matched_count == 0:
+            return jsonify({
+                "success": False,
+                "error": "Shift not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": (
+                "Shift updated successfully"
+                if result.modified_count
+                else "No changes made"
+            )
+        }), 200
+
+    except PyMongoError as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+
+# attendance_routes.py
+
+
+
+# attendance_routes.py
+
+from pymongo import ASCENDING, DESCENDING
+
+
+IST = ZoneInfo("Asia/Kolkata")
+
+attendance = db["attendance"]
+leave_requests = db["leave_requests"]
+
+
+# --------------------------------------------------
+# DATABASE INDEXES
+# --------------------------------------------------
+
+# One attendance record per staff per doctor per day.
+# Remove any existing duplicate records before creating
+# this unique index on a database with existing data.
+attendance.create_index(
+    [
+        ("doctor_id", ASCENDING),
+        ("staff_id", ASCENDING),
+        ("date", ASCENDING)
+    ],
+    unique=True
+)
+
+attendance.create_index(
+    [("doctor_id", ASCENDING), ("date", DESCENDING)]
+)
+
+leave_requests.create_index(
+    [
+        ("doctor_id", ASCENDING),
+        ("staff_id", ASCENDING),
+        ("start_date", ASCENDING)
+    ]
+)
+
+
+# --------------------------------------------------
+# COMMON HELPERS
+# --------------------------------------------------
+
+def now_ist():
+    return datetime.now(IST)
+
+
+def serialize(record):
+    if record:
+        record["_id"] = str(record["_id"])
+    return record
+
+
+def validate_date(value):
+    return date.fromisoformat(value).isoformat()
+
+
+def get_staff(doctor_id, staff_id):
+    """Find staff in the existing doctors collection."""
+    if not ObjectId.is_valid(staff_id):
+        return None
+
+    return doctors.find_one({
+        "_id": ObjectId(staff_id),
+        "role": "staff",
+        "doctorId": doctor_id
+    })
+
+
+def get_staff_name(staff):
+    return (
+        staff.get("name")
+        or staff.get("doctor_name")
+        or staff.get("staff_name")
+        or staff.get("FirstName")
+        or ""
+    )
+
+
+def calculate_working_hours(check_in, check_out):
+    if not check_in or not check_out:
+        return None
+
+    start = datetime.fromisoformat(check_in)
+    end = datetime.fromisoformat(check_out)
+
+    seconds = max(0, (end - start).total_seconds())
+    return round(seconds / 3600, 2)
+
+
+def attendance_response(record):
+    record = serialize(record)
+
+    record["working_hours"] = calculate_working_hours(
+        record.get("check_in"),
+        record.get("check_out")
+    )
+
+    return record
+
+
+# --------------------------------------------------
+# 1. STAFF CHECK-IN
+# POST /attendance/check-in
+# --------------------------------------------------
+
+@c2c_app.route("/attendance/check-in", methods=["POST"])
+def check_in():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        doctor_id = str(data.get("doctor_id", "")).strip()
+        staff_id = str(data.get("staff_id", "")).strip()
+
+        if not doctor_id or not staff_id:
+            return jsonify({
+                "success": False,
+                "message": "doctor_id and staff_id are required"
+            }), 400
+
+        staff = get_staff(doctor_id, staff_id)
+
+        if not staff:
+            return jsonify({
+                "success": False,
+                "message": "Staff not found for this doctor"
+            }), 404
+
+        current = now_ist()
+        today = current.date().isoformat()
+
+        # Prevent another check-in for the same day.
+        existing = attendance.find_one({
+            "doctor_id": doctor_id,
+            "staff_id": staff_id,
+            "date": today
+        })
+
+        if existing:
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Attendance already exists for today"
+                    if existing.get("check_out")
+                    else "You have already checked in today"
+                ),
+                "data": attendance_response(existing)
+            }), 409
+
+        record = {
+            "doctor_id": doctor_id,
+            "staff_id": staff_id,
+            "staff_name": get_staff_name(staff),
+            "date": today,
+            "check_in": current.isoformat(),
+            "check_out": None,
+            "status": "present",
+            "remarks": str(data.get("remarks", "")).strip(),
+            "created_at": current.isoformat(),
+            "updated_at": current.isoformat()
+        }
+
+        result = attendance.insert_one(record)
+        record["_id"] = result.inserted_id
+
+        return jsonify({
+            "success": True,
+            "message": "Check-in successful",
+            "data": attendance_response(record)
+        }), 201
+
+    except DuplicateKeyError:
+        return jsonify({
+            "success": False,
+            "message": "Attendance already exists for today"
+        }), 409
+
+    except PyMongoError as e:
+        return jsonify({
+            "success": False,
+            "message": "Database error",
+            "error": str(e)
+        }), 500
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 2. STAFF CHECK-OUT
+# PUT /attendance/check-out/<attendance_id>
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/check-out/<string:attendance_id>",
+    methods=["PUT"]
+)
+def check_out(attendance_id):
+    try:
+        if not ObjectId.is_valid(attendance_id):
+            return jsonify({
+                "success": False,
+                "message": "Invalid attendance_id"
+            }), 400
+
+        current = now_ist()
+
+        result = attendance.update_one(
+            {
+                "_id": ObjectId(attendance_id),
+                "check_out": None
+            },
+            {
+                "$set": {
+                    "check_out": current.isoformat(),
+                    "updated_at": current.isoformat()
+                }
+            }
+        )
+
+        if result.matched_count == 0:
+            existing = attendance.find_one({
+                "_id": ObjectId(attendance_id)
+            })
+
+            if not existing:
+                return jsonify({
+                    "success": False,
+                    "message": "Attendance record not found"
+                }), 404
+
+            return jsonify({
+                "success": False,
+                "message": "Check-out already completed"
+            }), 409
+
+        record = attendance.find_one({
+            "_id": ObjectId(attendance_id)
+        })
+
+        return jsonify({
+            "success": True,
+            "message": "Check-out successful",
+            "data": attendance_response(record)
+        }), 200
+
+    except PyMongoError as e:
+        return jsonify({
+            "success": False,
+            "message": "Database error",
+            "error": str(e)
+        }), 500
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 3. GET ALL STAFF WITH TODAY'S ATTENDANCE STATUS
+# GET /attendance/staff-list/<doctor_id>
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/staff-list/<string:doctor_id>",
+    methods=["GET"]
+)
+def attendance_staff_list(doctor_id):
+    try:
+        today = now_ist().date().isoformat()
+
+        staff_members = list(doctors.find({
+            "role": "staff",
+            "doctorId": doctor_id
+        }))
+
+        records = list(attendance.find({
+            "doctor_id": doctor_id,
+            "date": today
+        }))
+
+        attendance_map = {
+            record["staff_id"]: record
+            for record in records
+        }
+
+        result = []
+
+        for staff in staff_members:
+            staff_id = str(staff["_id"])
+            record = attendance_map.get(staff_id)
+
+            result.append({
+                "staff_id": staff_id,
+                "staff_name": get_staff_name(staff),
+                "doctor_id": doctor_id,
+                "date": today,
+                "attendance_status": (
+                    record.get("status", "present")
+                    if record else "not_marked"
+                ),
+                "check_in": record.get("check_in") if record else None,
+                "check_out": record.get("check_out") if record else None,
+                "attendance_id": (
+                    str(record["_id"]) if record else None
+                ),
+                "working_hours": (
+                    calculate_working_hours(
+                        record.get("check_in"),
+                        record.get("check_out")
+                    ) if record else None
+                )
+            })
+
+        return jsonify({
+            "success": True,
+            "date": today,
+            "count": len(result),
+            "data": result
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 4. GET DAILY ATTENDANCE
+# GET /attendance/daily/<doctor_id>?date=YYYY-MM-DD
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/daily/<string:doctor_id>",
+    methods=["GET"]
+)
+def get_daily_attendance(doctor_id):
+    try:
+        date_value = request.args.get(
+            "date",
+            now_ist().date().isoformat()
+        )
+        date_value = validate_date(date_value)
+
+        records = list(attendance.find({
+            "doctor_id": doctor_id,
+            "date": date_value
+        }).sort("check_in", DESCENDING))
+
+        for record in records:
+            attendance_response(record)
+
+        return jsonify({
+            "success": True,
+            "date": date_value,
+            "count": len(records),
+            "data": records
+        }), 200
+
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Date must use YYYY-MM-DD"
+        }), 400
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 5. GET STAFF ATTENDANCE HISTORY
+# GET /attendance/history/<staff_id>?doctor_id=...
+# Optional: start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/history/<string:staff_id>",
+    methods=["GET"]
+)
+def get_staff_attendance_history(staff_id):
+    try:
+        doctor_id = request.args.get("doctor_id", "").strip()
+
+        if not doctor_id or not ObjectId.is_valid(staff_id):
+            return jsonify({
+                "success": False,
+                "message": "Valid doctor_id and staff_id are required"
+            }), 400
+
+        query = {
+            "doctor_id": doctor_id,
+            "staff_id": staff_id
+        }
+
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        if start_date or end_date:
+            date_filter = {}
+
+            if start_date:
+                date_filter["$gte"] = validate_date(start_date)
+
+            if end_date:
+                date_filter["$lte"] = validate_date(end_date)
+
+            if (
+                start_date and end_date
+                and date_filter["$gte"] > date_filter["$lte"]
+            ):
+                return jsonify({
+                    "success": False,
+                    "message": "start_date cannot be after end_date"
+                }), 400
+
+            query["date"] = date_filter
+
+        records = list(
+            attendance.find(query)
+            .sort("date", DESCENDING)
+            .limit(500)
+        )
+
+        for record in records:
+            attendance_response(record)
+
+        return jsonify({
+            "success": True,
+            "count": len(records),
+            "data": records
+        }), 200
+
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Dates must use YYYY-MM-DD"
+        }), 400
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 6. GET SINGLE ATTENDANCE RECORD
+# GET /attendance/record/<attendance_id>
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/record/<string:attendance_id>",
+    methods=["GET"]
+)
+def get_attendance_record(attendance_id):
+    try:
+        if not ObjectId.is_valid(attendance_id):
+            return jsonify({
+                "success": False,
+                "message": "Invalid attendance_id"
+            }), 400
+
+        record = attendance.find_one({
+            "_id": ObjectId(attendance_id)
+        })
+
+        if not record:
+            return jsonify({
+                "success": False,
+                "message": "Attendance record not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "data": attendance_response(record)
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 7. MONTHLY ATTENDANCE SUMMARY
+# GET /attendance/summary/<staff_id>
+# Query: doctor_id=...&month=YYYY-MM
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/summary/<string:staff_id>",
+    methods=["GET"]
+)
+def attendance_summary(staff_id):
+    try:
+        doctor_id = request.args.get("doctor_id", "").strip()
+        month = request.args.get(
+            "month", now_ist().strftime("%Y-%m")
+        )
+
+        if not doctor_id or not ObjectId.is_valid(staff_id):
+            return jsonify({
+                "success": False,
+                "message": "Valid doctor_id and staff_id are required"
+            }), 400
+
+        start = date.fromisoformat(month + "-01")
+
+        if start.strftime("%Y-%m") != month:
+            raise ValueError("Invalid month")
+
+        if start.month == 12:
+            next_month = date(start.year + 1, 1, 1)
+        else:
+            next_month = date(start.year, start.month + 1, 1)
+
+        records = list(attendance.find({
+            "doctor_id": doctor_id,
+            "staff_id": staff_id,
+            "date": {
+                "$gte": start.isoformat(),
+                "$lt": next_month.isoformat()
+            }
+        }))
+
+        summary = {
+            "month": month,
+            "total_days": len(records),
+            "present": 0,
+            "incomplete_checkouts": 0,
+            "total_hours": 0.0
+        }
+
+        for record in records:
+            if record.get("status") == "present":
+                summary["present"] += 1
+
+            if not record.get("check_out"):
+                summary["incomplete_checkouts"] += 1
+            else:
+                hours = calculate_working_hours(
+                    record.get("check_in"),
+                    record.get("check_out")
+                )
+                summary["total_hours"] += hours or 0
+
+        summary["total_hours"] = round(
+            summary["total_hours"], 2
+        )
+
+        return jsonify({
+            "success": True,
+            "data": summary
+        }), 200
+
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Month must use YYYY-MM format"
+        }), 400
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 8. APPLY FOR LEAVE
+# POST /attendance/leave
+# --------------------------------------------------
+
+@c2c_app.route("/attendance/leave", methods=["POST"])
+def apply_leave():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        doctor_id = str(data.get("doctor_id", "")).strip()
+        staff_id = str(data.get("staff_id", "")).strip()
+        reason = str(data.get("reason", "")).strip()
+
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        if not all([
+            doctor_id, staff_id, start_date, end_date, reason
+        ]):
+            return jsonify({
+                "success": False,
+                "message": (
+                    "doctor_id, staff_id, start_date, "
+                    "end_date and reason are required"
+                )
+            }), 400
+
+        start_date = validate_date(start_date)
+        end_date = validate_date(end_date)
+
+        if end_date < start_date:
+            return jsonify({
+                "success": False,
+                "message": "end_date cannot be before start_date"
+            }), 400
+
+        staff = get_staff(doctor_id, staff_id)
+
+        if not staff:
+            return jsonify({
+                "success": False,
+                "message": "Staff not found for this doctor"
+            }), 404
+
+        current = now_ist()
+
+        leave = {
+            "doctor_id": doctor_id,
+            "staff_id": staff_id,
+            "staff_name": get_staff_name(staff),
+            "start_date": start_date,
+            "end_date": end_date,
+            "reason": reason,
+            "request_type": "leave",
+            "status": "pending",
+            "reviewed_by": None,
+            "review_remarks": "",
+            "created_at": current.isoformat(),
+            "updated_at": current.isoformat()
+        }
+
+        result = leave_requests.insert_one(leave)
+
+        try:
+            from doctors.functions.attedance import send_approval_request_to_doctor
+            send_approval_request_to_doctor(doctor_id, str(result.inserted_id), leave)
+        except Exception as e:
+            print("[c2c_app] Failed to send WhatsApp approval to doctor:", str(e))
+
+        return jsonify({
+            "success": True,
+            "message": "Leave application submitted",
+            "leave_id": str(result.inserted_id),
+            "status": "pending"
+        }), 201
+
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Dates must use YYYY-MM-DD"
+        }), 400
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 9. GET STAFF LEAVE REQUESTS
+# GET /attendance/leave/<staff_id>?doctor_id=...
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/leave/<string:staff_id>",
+    methods=["GET"]
+)
+def get_staff_leaves(staff_id):
+    try:
+        doctor_id = request.args.get("doctor_id", "").strip()
+
+        if not doctor_id or not ObjectId.is_valid(staff_id):
+            return jsonify({
+                "success": False,
+                "message": "Valid doctor_id and staff_id are required"
+            }), 400
+
+        records = list(
+            leave_requests.find({
+                "doctor_id": doctor_id,
+                "staff_id": staff_id
+            }).sort("created_at", DESCENDING).limit(500)
+        )
+
+        for record in records:
+            serialize(record)
+
+        return jsonify({
+            "success": True,
+            "count": len(records),
+            "data": records
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 10. APPROVE OR REJECT LEAVE
+# PUT /attendance/leave/<leave_id>/review
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/leave/<string:leave_id>/review",
+    methods=["PUT"]
+)
+def review_leave(leave_id):
+    try:
+        if not ObjectId.is_valid(leave_id):
+            return jsonify({
+                "success": False,
+                "message": "Invalid leave_id"
+            }), 400
+
+        data = request.get_json(silent=True) or {}
+
+        status = data.get("status")
+        reviewed_by = str(data.get("reviewed_by", "")).strip()
+        remarks = str(data.get("remarks", "")).strip()
+
+        if status not in ("approved", "rejected"):
+            return jsonify({
+                "success": False,
+                "message": "status must be approved or rejected"
+            }), 400
+
+        if not reviewed_by:
+            return jsonify({
+                "success": False,
+                "message": "reviewed_by is required"
+            }), 400
+
+        result = leave_requests.update_one(
+            {
+                "_id": ObjectId(leave_id),
+                "status": "pending"
+            },
+            {
+                "$set": {
+                    "status": status,
+                    "reviewed_by": reviewed_by,
+                    "review_remarks": remarks,
+                    "updated_at": now_ist().isoformat()
+                }
+            }
+        )
+
+        if result.matched_count == 0:
+            existing = leave_requests.find_one({
+                "_id": ObjectId(leave_id)
+            })
+
+            if not existing:
+                return jsonify({
+                    "success": False,
+                    "message": "Leave request not found"
+                }), 404
+
+            return jsonify({
+                "success": False,
+                "message": "Leave request already reviewed"
+            }), 409
+
+        # When official duty is approved, automatically mark attendance (check-in or check-out)
+        leave_doc = leave_requests.find_one({"_id": ObjectId(leave_id)})
+        attendance_info = None
+        duty_action_applied = None
+
+        if status == "approved" and leave_doc:
+            is_official_duty = (
+                leave_doc.get("request_type") == "official_duty"
+                or "official duty" in str(leave_doc.get("reason", "")).lower()
+            )
+
+            if is_official_duty:
+                target_date = leave_doc.get("start_date") or now_ist().date().isoformat()
+                doc_id = str(leave_doc.get("doctor_id", "")).strip()
+                stf_id = str(leave_doc.get("staff_id", "")).strip()
+                stf_name = leave_doc.get("staff_name") or ""
+                shft_id = leave_doc.get("shift_id")
+                shft_name = leave_doc.get("shift_name", "Official Duty")
+
+                existing_att = attendance.find_one({
+                    "doctor_id": doc_id,
+                    "staff_id": stf_id,
+                    "date": target_date
+                })
+
+                # Determine action: payload override OR document duty_action OR auto-detect
+                duty_action = (
+                    data.get("action")
+                    or data.get("duty_action")
+                    or leave_doc.get("duty_action")
+                )
+
+                if not duty_action or duty_action == "auto":
+                    if existing_att and not existing_att.get("check_out"):
+                        duty_action = "check_out"
+                    else:
+                        duty_action = "check_in"
+
+                duty_action_applied = duty_action
+                current_timestamp = leave_doc.get("created_at") or now_ist().isoformat()
+
+                if duty_action == "check_out":
+                    check_out_time = data.get("check_out") or current_timestamp
+                    if existing_att:
+                        attendance.update_one(
+                            {"_id": existing_att["_id"]},
+                            {
+                                "$set": {
+                                    "check_out": check_out_time,
+                                    "updated_at": now_ist().isoformat(),
+                                    "remarks": (
+                                        str(existing_att.get("remarks", ""))
+                                        + f" | Official Duty Check-Out Approved ({shft_name})"
+                                    ).strip(" |")
+                                }
+                            }
+                        )
+                        att_updated = attendance.find_one({"_id": existing_att["_id"]})
+                        attendance_info = attendance_response(att_updated)
+                    else:
+                        att_new = {
+                            "doctor_id": doc_id,
+                            "staff_id": stf_id,
+                            "staff_name": stf_name,
+                            "date": target_date,
+                            "check_in": check_out_time,
+                            "check_out": check_out_time,
+                            "status": "present",
+                            "attendance_type": "official_duty",
+                            "shift_id": shft_id,
+                            "shift_name": shft_name,
+                            "remarks": f"Official Duty Check-Out Approved ({shft_name})",
+                            "official_duty_id": str(leave_id),
+                            "created_at": now_ist().isoformat(),
+                            "updated_at": now_ist().isoformat()
+                        }
+                        insert_res = attendance.insert_one(att_new)
+                        att_new["_id"] = insert_res.inserted_id
+                        attendance_info = attendance_response(att_new)
+
+                else:
+                    # check_in
+                    check_in_time = data.get("check_in") or current_timestamp
+                    if existing_att:
+                        attendance.update_one(
+                            {"_id": existing_att["_id"]},
+                            {
+                                "$set": {
+                                    "status": "present",
+                                    "attendance_type": "official_duty",
+                                    "shift_id": shft_id or existing_att.get("shift_id"),
+                                    "shift_name": shft_name or existing_att.get("shift_name"),
+                                    "updated_at": now_ist().isoformat(),
+                                    "remarks": (
+                                        str(existing_att.get("remarks", ""))
+                                        + f" | Official Duty Check-In Approved ({shft_name})"
+                                    ).strip(" |")
+                                }
+                            }
+                        )
+                        att_updated = attendance.find_one({"_id": existing_att["_id"]})
+                        attendance_info = attendance_response(att_updated)
+                    else:
+                        att_new = {
+                            "doctor_id": doc_id,
+                            "staff_id": stf_id,
+                            "staff_name": stf_name,
+                            "date": target_date,
+                            "check_in": check_in_time,
+                            "check_out": None,
+                            "status": "present",
+                            "attendance_type": "official_duty",
+                            "shift_id": shft_id,
+                            "shift_name": shft_name,
+                            "remarks": f"Official Duty Check-In Approved ({shft_name})",
+                            "official_duty_id": str(leave_id),
+                            "created_at": now_ist().isoformat(),
+                            "updated_at": now_ist().isoformat()
+                        }
+                        try:
+                            insert_res = attendance.insert_one(att_new)
+                            att_new["_id"] = insert_res.inserted_id
+                            attendance_info = attendance_response(att_new)
+                        except DuplicateKeyError:
+                            attendance.update_one(
+                                {"doctor_id": doc_id, "staff_id": stf_id, "date": target_date},
+                                {
+                                    "$set": {
+                                        "status": "present",
+                                        "attendance_type": "official_duty",
+                                        "updated_at": now_ist().isoformat()
+                                    }
+                                }
+                            )
+                            att_updated = attendance.find_one({
+                                "doctor_id": doc_id,
+                                "staff_id": stf_id,
+                                "date": target_date
+                            })
+                            attendance_info = attendance_response(att_updated)
+
+                # Send WhatsApp notification to staff if phone number is available
+                try:
+                    staff_phone = leave_doc.get("mobile_number")
+                    if not staff_phone:
+                        staff_obj = get_staff(doc_id, stf_id)
+                        staff_phone = staff_obj.get("phone") if staff_obj else None
+                    if staff_phone:
+                        from doctors.functions.attedance import send_whatsapp_text
+                        action_title = "Check-Out" if duty_action == "check_out" else "Check-In"
+                        send_whatsapp_text(
+                            staff_phone,
+                            f"✅ Aapki Official Duty ({action_title}) request approve kar di gayi hai.\nAttendance mark ho gayi hai."
+                        )
+                except Exception as notify_err:
+                    print("WhatsApp notification error upon approval:", notify_err)
+
+        resp = {
+            "success": True,
+            "message": f"Leave {status} successfully",
+            "status": status
+        }
+        if attendance_info:
+            resp["message"] = f"Official duty approved and attendance marked ({duty_action_applied})"
+            resp["attendance"] = attendance_info
+
+        return jsonify(resp), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+
+# --------------------------------------------------
+# 11. GET ALL LEAVE & DUTY REQUESTS FOR A DOCTOR
+# GET /attendance/leave-list/<doctor_id>?status=...
+# --------------------------------------------------
+
+@c2c_app.route(
+    "/attendance/leave-list/<string:doctor_id>",
+    methods=["GET"]
+)
+def get_all_doctor_leaves(doctor_id):
+    try:
+        doctor_id = str(doctor_id).strip()
+        if not doctor_id:
+            return jsonify({
+                "success": False,
+                "message": "doctor_id is required"
+            }), 400
+
+        query = {"doctor_id": doctor_id}
+
+        status = request.args.get("status")
+        if status:
+            query["status"] = status.strip()
+
+        request_type = request.args.get("request_type")
+        if request_type:
+            req_type = request_type.strip().lower()
+            if req_type == "leave":
+                query["$or"] = [
+                    {"request_type": "leave"},
+                    {"request_type": {"$exists": False}},
+                    {"request_type": None}
+                ]
+            else:
+                query["request_type"] = req_type
+
+        # Pagination parameters
+        page = request.args.get("page")
+        limit = request.args.get("limit")
+
+        try:
+            page = max(1, int(page)) if page else 1
+        except (ValueError, TypeError):
+            page = 1
+
+        try:
+            limit = min(500, max(1, int(limit))) if limit else 10
+        except (ValueError, TypeError):
+            limit = 10
+
+        skip = (page - 1) * limit
+
+        total = leave_requests.count_documents(query)
+        total_pages = (total + limit - 1) // limit if limit > 0 else 1
+
+        records = list(
+            leave_requests.find(query)
+            .sort("created_at", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+
+        for record in records:
+            serialize(record)
+
+        return jsonify({
+            "success": True,
+            "count": len(records),
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+            "data": records
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
