@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 from datetime import datetime, timedelta
 from math import pow
 import uuid
-
+import math
 
 
 
@@ -463,52 +463,162 @@ def create_loan_product():
         "data": convert_objectids(payload)
     }), 201
 
+
 @localprime_bp.route("/loan-products/<product_id>", methods=["POST"])
 def update_loan_product(product_id):
 
-    data = request.get_json(silent=True) or {}
+    try:
 
-    product = db.loan_products.find_one({
-        "_id": ObjectId(product_id)
-    })
-
-    if not product:
-        return jsonify({
-            "success": False,
-            "message": "Loan product not found"
-        }), 404
-
-    if "loanName" in data:
-        duplicate = db.loan_products.find_one({
-            "loanName": {
-                "$regex": f"^{data['loanName']}$",
-                "$options": "i"
-            },
-            "_id": {"$ne": ObjectId(product_id)}
-        })
-
-        if duplicate:
+        # -----------------------------------------
+        # Validate ObjectId
+        # -----------------------------------------
+        try:
+            product_oid = ObjectId(product_id)
+        except Exception:
             return jsonify({
                 "success": False,
-                "message": "Loan already exists"
+                "message": "Invalid product_id"
             }), 400
 
+        # -----------------------------------------
+        # Get existing product
+        # -----------------------------------------
+        product = db.loan_products.find_one({
+            "_id": product_oid
+        })
+
+        if not product:
+            return jsonify({
+                "success": False,
+                "message": "Loan product not found"
+            }), 404
+
+        # -----------------------------------------
+        # Request data
+        # -----------------------------------------
+        data = request.get_json(silent=True) or {}
+
+        # IMPORTANT:
+        # Never update MongoDB _id
+        data.pop("_id", None)
+
+        # -----------------------------------------
+        # Loan name duplicate check
+        # -----------------------------------------
+        if "loanName" in data:
+
+            loan_name = data["loanName"]
+
+            if not loan_name:
+                return jsonify({
+                    "success": False,
+                    "message": "Loan name cannot be empty"
+                }), 400
+
+            duplicate = db.loan_products.find_one({
+                "loanName": {
+                    "$regex": f"^{loan_name}$",
+                    "$options": "i"
+                },
+                "_id": {
+                    "$ne": product_oid
+                }
+            })
+
+            if duplicate:
+                return jsonify({
+                    "success": False,
+                    "message": "Loan product already exists"
+                }), 400
+
+        # -----------------------------------------
+        # Don't allow immutable/internal fields
+        # -----------------------------------------
+        data.pop("created_at", None)
+
+        # -----------------------------------------
+        # Updated time
+        # -----------------------------------------
+        data["updated_at"] = datetime.utcnow()
+
+        # -----------------------------------------
+        # Update
+        # -----------------------------------------
+        result = db.loan_products.update_one(
+            {
+                "_id": product_oid
+            },
+            {
+                "$set": data
+            }
+        )
+
+        # -----------------------------------------
+        # Get updated document
+        # -----------------------------------------
+        updated_product = db.loan_products.find_one({
+            "_id": product_oid
+        })
+
+        return jsonify({
+            "success": True,
+            "message": "Loan product updated successfully",
+            "data": convert_objectids(updated_product)
+        }), 200
+
+    except Exception as e:
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+# @localprime_bp.route("/loan-products/<product_id>", methods=["POST"])
+# def update_loan_product(product_id):
+
+#     data = request.get_json(silent=True) or {}
+
+#     product = db.loan_products.find_one({
+#         "_id": ObjectId(product_id)
+#     })
+
+#     if not product:
+#         return jsonify({
+#             "success": False,
+#             "message": "Loan product not found"
+#         }), 404
+
+#     if "loanName" in data:
+#         duplicate = db.loan_products.find_one({
+#             "loanName": {
+#                 "$regex": f"^{data['loanName']}$",
+#                 "$options": "i"
+#             },
+#             "_id": {"$ne": ObjectId(product_id)}
+#         })
+
+#         if duplicate:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Loan already exists"
+#             }), 400
 
 
-    data["updated_at"] = datetime.utcnow()
 
-    db.loan_products.update_one(
-        {"_id": ObjectId(product_id)},
-        {"$set": data}
-    )
+#     data["updated_at"] = datetime.utcnow()
 
-    product.update(data)
+#     db.loan_products.update_one(
+#         {"_id": ObjectId(product_id)},
+#         {"$set": data}
+#     )
 
-    return jsonify({
-        "success": True,
-        "message": "Loan product updated successfully",
-        "data": convert_objectids(product)
-    }), 200
+#     product.update(data)
+
+#     return jsonify({
+#         "success": True,
+#         "message": "Loan product updated successfully",
+#         "data": convert_objectids(product)
+#     }), 200
 
 
 @localprime_bp.route("/loan-products", methods=["GET"])
@@ -821,8 +931,8 @@ def create_agent_request():
     payload = {
         "member_id": member["_id"],
         "memberId": member["memberId"],
-        "memberName": member.get("name"),
-        "password": member.get("password"),
+        "memberName": member.get("Title")+" "+member.get("FirstName")+" "+member.get("LastName"),
+        "password": data.get("password"),
         "IntroCode": data.get("IntroCode"),
         "branch_id": branch["_id"],
         "branchCode": branch["branch_code"],
@@ -1158,6 +1268,7 @@ def get_agents():
     branch_code = request.args.get("branchCode")
     status = request.args.get("status")
     agent_code = request.args.get("agentCode")
+    IntroCode = request.args.get("IntroCode")
 
     if branch_code:
         query["BranchCode"] = branch_code
@@ -1167,6 +1278,9 @@ def get_agents():
 
     if agent_code:
         query["agentCode"] = agent_code
+
+    if IntroCode:
+        query["IntroCode"] = IntroCode
 
     agents = list(
         members.find(query).sort("created_at", -1)
@@ -1756,6 +1870,67 @@ def create_wallet():
     }), 201
 
 
+
+# ============================================================
+# GET WALLET TRANSACTIONS
+# ============================================================
+
+# @localprime_bp.route("/wallet/transactions", methods=["GET"])
+# def get_wallet_transactions():
+
+#     query = {}
+
+#     wallet_id = request.args.get("wallet_id")
+#     agent_id = request.args.get("agent_id")
+#     transaction_type = request.args.get("type")   # withdraw / deposit
+#     status = request.args.get("status")
+
+#     # Wallet filter
+#     if wallet_id:
+#         try:
+#             query["wallet_id"] = ObjectId(wallet_id)
+#         except Exception:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Invalid wallet_id"
+#             }), 400
+
+#     # Agent filter
+#     if agent_id:
+#         try:
+#             query["agent_id"] = ObjectId(agent_id)
+#         except Exception:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "Invalid agent_id"
+#             }), 400
+
+#     # Transaction type
+#     if transaction_type:
+#         if transaction_type not in ["withdraw", "deposit"]:
+#             return jsonify({
+#                 "success": False,
+#                 "message": "type must be withdraw or deposit"
+#             }), 400
+
+#         query["type"] = transaction_type
+
+#     # Status
+#     if status:
+#         query["status"] = status
+
+#     transactions = list(
+#         db.wallet_transactions
+#         .find(query)
+#         .sort("created_at", -1)
+#     )
+
+#     return jsonify({
+#         "success": True,
+#         "count": len(transactions),
+#         "data": convert_objectids(transactions)
+#     }), 200
+
 # ============================================================
 # GET WALLET LIST
 # ============================================================
@@ -1869,6 +2044,88 @@ def create_wallet_voucher(
     voucher["_id"] = str(result.inserted_id)
 
     return voucher
+
+
+
+
+
+def create_appointment_wallet_voucher(
+    wallet,
+    amount,
+    markup_amount,
+    voucher_type,
+    voucher_mode,
+    narration,
+    debit_ledger_id,
+    debit_ledger_name,
+    credit_ledger_id,
+    credit_ledger_name,
+    credit_ledger_id2,
+    credit_ledger_name2,
+    created_by="admin"
+):
+    now = datetime.utcnow()
+
+    # Sequential transaction number
+    txn = get_next_sequence("voucherTxn")
+
+    # Voucher number
+    date_string = now.strftime("%Y-%m-%d")
+    voucher_number = f"JRV-{date_string}-{txn}"
+
+    agent_id = str(wallet.get("agent_id"))
+    agent_name = wallet.get("agentName", "")
+
+    entries = [
+        {
+            "ledger_id": debit_ledger_id,
+            "ledger_name": debit_ledger_name,
+            "narration": narration,
+            "debit": float(amount+markup_amount),
+            "credit": 0.0,
+            "employee_id": agent_id,
+            "employee_name": agent_name
+        },
+        {
+            "ledger_id": credit_ledger_id,
+            "ledger_name": credit_ledger_name,
+            "narration": narration,
+            "debit": 0.0,
+            "credit": float(amount),
+            "employee_id": agent_id,
+            "employee_name": agent_name
+        },
+        {
+                    "ledger_id": credit_ledger_id2,
+                    "ledger_name": credit_ledger_name2,
+                    "narration": narration,
+                    "debit": 0.0,
+                    "credit": float(markup_amount),
+                    "employee_id": agent_id,
+                    "employee_name": agent_name
+        }
+    ]
+
+    voucher = {
+        "voucher_number": voucher_number,
+        "voucher_type": voucher_type,
+        "voucher_mode": voucher_mode,
+        "txn": txn,
+        "from_id": created_by,
+        "date": now,
+        "narration": narration,
+        "amount": float(amount),
+        "entries": entries,
+        "created_by": created_by,
+        "created_at": now
+    }
+
+    result = db.vouchers.insert_one(voucher)
+
+    voucher["_id"] = str(result.inserted_id)
+
+    return voucher
+
 
 # ============================================================
 # WITHDRAW FROM CREDIT WALLET
@@ -2419,6 +2676,748 @@ def get_wallet_details():
 
 
 
+# ============================================================
+# ADD MONEY REQUEST APIs
+# Uses existing:
+# localprime_bp, db, members, get_next_sequence,
+# convert_objectids, create_wallet_voucher
+# ============================================================
+
+
+# ------------------------------------------------------------
+# 1. CREATE ADD MONEY REQUEST
+# POST /wallet/add-money-requests
+# ------------------------------------------------------------
+
+@localprime_bp.route(
+    "/wallet/add-money-requests",
+    methods=["POST"]
+)
+def create_add_money_request():
+    data = request.get_json(silent=True) or {}
+
+    amount = data.get("amount")
+    agent_id = data.get("agent_id")
+    bank_name = data.get("bank_name")
+    bank_ledger_id = data.get("bank_ledger_id")
+    doc_url = data.get("doc_url", None)
+
+    # Validate required fields
+    required_fields = {
+        "amount": amount,
+        "agent_id": agent_id,
+        "bank_name": bank_name,
+        "bank_ledger_id": bank_ledger_id
+    }
+
+    for field, value in required_fields.items():
+        if value is None or str(value).strip() == "":
+            return jsonify({
+                "success": False,
+                "message": f"{field} is required"
+            }), 400
+
+    # Validate amount
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        return jsonify({
+            "success": False,
+            "message": "Invalid amount"
+        }), 400
+
+    if not math.isfinite(amount) or amount <= 0:
+        return jsonify({
+            "success": False,
+            "message": "Amount must be greater than 0"
+        }), 400
+
+    amount = round(amount, 2)
+
+    # Validate agent ID
+    try:
+        agent_oid = ObjectId(agent_id)
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Invalid agent_id"
+        }), 400
+
+    # Find agent
+    agent = members.find_one({
+        "_id": agent_oid,
+        "isAgent": True
+    })
+
+    if not agent:
+        return jsonify({
+            "success": False,
+            "message": "Agent not found"
+        }), 404
+
+    # Find agent wallet
+    wallet = db.wallets.find_one({
+        "agent_id": agent_oid
+    })
+
+    if not wallet:
+        return jsonify({
+            "success": False,
+            "message": "Wallet not found for this agent"
+        }), 404
+
+    if wallet.get("status") != "active":
+        return jsonify({
+            "success": False,
+            "message": "Wallet is not active"
+        }), 400
+
+    now = datetime.utcnow()
+
+    # Create request document
+    payload = {
+        "wallet_id": wallet["_id"],
+        "walletNumber": wallet.get("walletNumber"),
+
+        "agent_id": agent_oid,
+        "agentCode": wallet.get("agentCode"),
+        "agentName": wallet.get("agentName"),
+
+        "doc_url": doc_url,
+
+        "amount": amount,
+        "bank_name": str(bank_name).strip(),
+        "bank_ledger_id": str(bank_ledger_id).strip(),
+
+        "status": "pending",
+
+        "approved_by": None,
+        "approved_at": None,
+
+        "rejected_by": None,
+        "rejected_at": None,
+        "rejected_reason": None,
+
+        "voucher_id": None,
+        "voucher_number": None,
+
+        "created_at": now,
+        "updated_at": now
+    }
+
+    result = db.wallet_add_money_requests.insert_one(payload)
+    request_oid = result.inserted_id
+    payload["_id"] = request_oid
+
+    # Create transaction immediately so that pending
+    # requests are visible in wallet transaction history.
+    transaction_seq = get_next_sequence("walletTransaction")
+
+    transaction = {
+        "transactionNumber": f"WT{transaction_seq:08d}",
+
+        "wallet_id": wallet["_id"],
+        "walletNumber": wallet.get("walletNumber"),
+
+        "agent_id": agent_oid,
+        "agentCode": wallet.get("agentCode"),
+        "agentName": wallet.get("agentName"),
+
+        "type": "add_money_request",
+        "amount": amount,
+
+        "bank_name": str(bank_name).strip(),
+        "bank_ledger_id": str(bank_ledger_id).strip(),
+
+        "request_id": request_oid,
+
+        # Wallet remains unchanged while pending
+        "balanceBefore": float(wallet.get("usedCredit", 0)),
+        "balanceAfter": float(wallet.get("usedCredit", 0)),
+
+        "availableCreditBefore": float(
+            wallet.get("availableCredit", 0)
+        ),
+        "availableCreditAfter": float(
+            wallet.get("availableCredit", 0)
+        ),
+
+        "voucher_id": None,
+        "voucher_number": None,
+
+        "status": "pending",
+        "remarks": "Add money request submitted",
+
+        "created_at": now,
+        "updated_at": now
+    }
+
+    transaction_result = db.wallet_transactions.insert_one(
+        transaction
+    )
+    transaction["_id"] = transaction_result.inserted_id
+
+    return jsonify({
+        "success": True,
+        "message": "Add money request submitted successfully",
+        "data": {
+            "request": convert_objectids(payload),
+            "transaction": convert_objectids(transaction)
+        }
+    }), 201
+
+
+# ------------------------------------------------------------
+# 2. GET ADD MONEY REQUESTS
+# GET /wallet/add-money-requests
+#
+# Optional filters:
+# ?status=pending
+# ?status=approved
+# ?status=rejected
+# ?agent_id=...
+# ------------------------------------------------------------
+
+@localprime_bp.route(
+    "/wallet/add-money-requests",
+    methods=["GET"]
+)
+def get_add_money_requests():
+    query = {}
+
+    status = request.args.get("status")
+    agent_id = request.args.get("agent_id")
+    wallet_id = request.args.get("wallet_id")
+
+    if status:
+        if status not in [
+            "pending", "processing", "approved", "rejected"
+        ]:
+            return jsonify({
+                "success": False,
+                "message": "Invalid status"
+            }), 400
+
+        query["status"] = status
+
+    if agent_id:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    if wallet_id:
+        try:
+            query["wallet_id"] = ObjectId(wallet_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid wallet_id"
+            }), 400
+
+    requests_list = list(
+        db.wallet_add_money_requests
+        .find(query)
+        .sort("created_at", -1)
+    )
+
+    return jsonify({
+        "success": True,
+        "count": len(requests_list),
+        "data": convert_objectids(requests_list)
+    }), 200
+
+
+# ------------------------------------------------------------
+# 3. APPROVE OR REJECT ADD MONEY REQUEST
+# POST /wallet/add-money-requests/<request_id>/decision
+#
+# Approve:
+# {
+#   "status": "approved",
+#   "approved_by": "admin"
+# }
+#
+# Reject:
+# {
+#   "status": "rejected",
+#   "rejected_by": "admin",
+#   "rejected_reason": "Bank payment not verified"
+# }
+# ------------------------------------------------------------
+
+@localprime_bp.route(
+    "/wallet/add-money-requests/<request_id>/decision",
+    methods=["POST"]
+)
+def decide_add_money_request(request_id):
+    data = request.get_json(silent=True) or {}
+
+    status = data.get("status")
+    approved_by = data.get("approved_by", "admin")
+    rejected_by = data.get("rejected_by", approved_by)
+    rejected_reason = data.get(
+        "rejected_reason",
+        "Add money request rejected"
+    )
+
+    if status not in ["approved", "rejected"]:
+        return jsonify({
+            "success": False,
+            "message": "status must be approved or rejected"
+        }), 400
+
+    try:
+        request_oid = ObjectId(request_id)
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Invalid request_id"
+        }), 400
+
+    # Atomically claim the pending request.
+    # This prevents two concurrent approval attempts.
+    now = datetime.utcnow()
+
+    claim_result = db.wallet_add_money_requests.update_one(
+        {
+            "_id": request_oid,
+            "status": "pending"
+        },
+        {
+            "$set": {
+                "status": "processing",
+                "updated_at": now
+            }
+        }
+    )
+
+    if claim_result.matched_count == 0:
+        existing_request = db.wallet_add_money_requests.find_one({
+            "_id": request_oid
+        })
+
+        if not existing_request:
+            return jsonify({
+                "success": False,
+                "message": "Add money request not found"
+            }), 404
+
+        return jsonify({
+            "success": False,
+            "message": (
+                "Request already processed or is being processed"
+            ),
+            "status": existing_request.get("status")
+        }), 409
+
+    request_doc = db.wallet_add_money_requests.find_one({
+        "_id": request_oid
+    })
+
+    # ---------------- REJECT REQUEST ----------------
+
+    if status == "rejected":
+        now = datetime.utcnow()
+
+        db.wallet_add_money_requests.update_one(
+            {
+                "_id": request_oid,
+                "status": "processing"
+            },
+            {
+                "$set": {
+                    "status": "rejected",
+                    "rejected_by": rejected_by,
+                    "rejected_reason": rejected_reason,
+                    "rejected_at": now,
+                    "updated_at": now
+                }
+            }
+        )
+
+        # Update the existing transaction, do not insert
+        # a second transaction for the same request.
+        db.wallet_transactions.update_one(
+            {
+                "request_id": request_oid
+            },
+            {
+                "$set": {
+                    "status": "rejected",
+                    "remarks": rejected_reason,
+                    "rejected_by": rejected_by,
+                    "updated_at": now
+                }
+            }
+        )
+
+        updated_request = db.wallet_add_money_requests.find_one({
+            "_id": request_oid
+        })
+
+        updated_transaction = db.wallet_transactions.find_one({
+            "request_id": request_oid
+        })
+
+        return jsonify({
+            "success": True,
+            "message": "Add money request rejected successfully",
+            "data": {
+                "request": convert_objectids(updated_request),
+                "transaction": convert_objectids(
+                    updated_transaction
+                )
+            }
+        }), 200
+
+    # ---------------- APPROVE REQUEST ----------------
+
+    try:
+        wallet = db.wallets.find_one({
+            "_id": request_doc["wallet_id"]
+        })
+
+        if not wallet:
+            db.wallet_add_money_requests.update_one(
+                {
+                    "_id": request_oid,
+                    "status": "processing"
+                },
+                {
+                    "$set": {
+                        "status": "pending",
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+
+            return jsonify({
+                "success": False,
+                "message": "Wallet not found"
+            }), 404
+
+        if wallet.get("status") != "active":
+            db.wallet_add_money_requests.update_one(
+                {
+                    "_id": request_oid,
+                    "status": "processing"
+                },
+                {
+                    "$set": {
+                        "status": "pending",
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+
+            return jsonify({
+                "success": False,
+                "message": "Wallet is not active"
+            }), 400
+
+        amount = float(request_doc["amount"])
+
+        used_credit = float(wallet.get("usedCredit", 0))
+        old_available_credit = float(
+            wallet.get("availableCredit", 0)
+        )
+
+        # Existing wallet/deposit logic treats deposit as
+        # repayment against used credit.
+        if amount > used_credit:
+            db.wallet_add_money_requests.update_one(
+                {
+                    "_id": request_oid,
+                    "status": "processing"
+                },
+                {
+                    "$set": {
+                        "status": "pending",
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Request amount cannot be greater than used credit"
+                ),
+                "usedCredit": used_credit,
+                "requestedAmount": amount
+            }), 400
+
+        new_used_credit = round(used_credit - amount, 2)
+
+        new_available_credit = round(
+            float(wallet.get("creditLimit", 0)) -
+            new_used_credit,
+            2
+        )
+
+        new_total_deposit = round(
+            float(wallet.get("totalDeposit", 0)) + amount,
+            2
+        )
+
+        now = datetime.utcnow()
+
+        # Create voucher using the existing helper.
+        # This follows the same ledger direction as your
+        # existing /wallet/deposit endpoint.
+        voucher = create_wallet_voucher(
+            wallet=wallet,
+            amount=amount,
+
+            voucher_type="Receipt",
+            voucher_mode="Bank",
+
+            narration="Approved agent wallet add money request",
+
+            debit_ledger_id="A44",
+            debit_ledger_name="Advance from Channel Partners",
+
+            credit_ledger_id=request_doc["bank_ledger_id"],
+            credit_ledger_name=request_doc["bank_name"],
+
+            created_by=approved_by
+        )
+
+        voucher_oid = ObjectId(voucher["_id"])
+
+        # Update wallet only if the values have not changed
+        # since they were read. This protects against a
+        # concurrent wallet balance update.
+        wallet_update = db.wallets.update_one(
+            {
+                "_id": wallet["_id"],
+                "status": "active",
+                "usedCredit": used_credit
+            },
+            {
+                "$set": {
+                    "usedCredit": new_used_credit,
+                    "availableCredit": new_available_credit,
+                    "totalDeposit": new_total_deposit,
+                    "updated_at": now
+                }
+            }
+        )
+
+        if wallet_update.modified_count != 1:
+            # A voucher may already have been created here.
+            # Do not silently mark the request successful.
+            db.wallet_add_money_requests.update_one(
+                {
+                    "_id": request_oid,
+                    "status": "processing"
+                },
+                {
+                    "$set": {
+                        "status": "pending",
+                        "updated_at": datetime.utcnow(),
+                        "last_error": "Wallet changed during approval"
+                    }
+                }
+            )
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Wallet changed during approval. "
+                    "Please review the voucher before retrying."
+                ),
+                "voucher_number": voucher.get("voucher_number")
+            }), 409
+
+        # Update existing transaction from pending to success.
+        transaction_update = db.wallet_transactions.update_one(
+            {
+                "request_id": request_oid,
+                "status": "pending"
+            },
+            {
+                "$set": {
+                    "status": "success",
+                    "remarks": "Add money request approved",
+
+                    "balanceBefore": used_credit,
+                    "balanceAfter": new_used_credit,
+
+                    "availableCreditBefore": old_available_credit,
+                    "availableCreditAfter": new_available_credit,
+
+                    "voucher_id": voucher_oid,
+                    "voucher_number": voucher["voucher_number"],
+
+                    "approved_by": approved_by,
+                    "updated_at": now
+                }
+            }
+        )
+
+        # Complete the request
+        db.wallet_add_money_requests.update_one(
+            {
+                "_id": request_oid,
+                "status": "processing"
+            },
+            {
+                "$set": {
+                    "status": "approved",
+                    "approved_by": approved_by,
+                    "approved_at": now,
+                    "voucher_id": voucher_oid,
+                    "voucher_number": voucher["voucher_number"],
+                    "updated_at": now
+                }
+            }
+        )
+
+        updated_wallet = db.wallets.find_one({
+            "_id": wallet["_id"]
+        })
+
+        updated_request = db.wallet_add_money_requests.find_one({
+            "_id": request_oid
+        })
+
+        updated_transaction = db.wallet_transactions.find_one({
+            "request_id": request_oid
+        })
+
+        return jsonify({
+            "success": True,
+            "message": "Add money request approved successfully",
+            "data": {
+                "request": convert_objectids(updated_request),
+                "wallet": convert_objectids(updated_wallet),
+                "transaction": convert_objectids(
+                    updated_transaction
+                ),
+                "voucher": convert_objectids(voucher)
+            }
+        }), 200
+
+    except Exception as e:
+        # Keep the error visible for investigation.
+        # Avoid automatically retrying voucher creation
+        # without first checking whether a voucher exists.
+        db.wallet_add_money_requests.update_one(
+            {
+                "_id": request_oid,
+                "status": "processing"
+            },
+            {
+                "$set": {
+                    "last_error": str(e),
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+
+        return jsonify({
+            "success": False,
+            "message": "Error processing add money request",
+            "error": str(e),
+            "request_id": str(request_oid)
+        }), 500
+
+
+# ------------------------------------------------------------
+# 4. GET WALLET TRANSACTIONS
+# GET /wallet/transactions
+#
+# Optional:
+# ?wallet_id=...
+# ?agent_id=...
+# ?type=add_money_request
+# ?status=pending
+# ?status=rejected
+# ?status=success
+# ------------------------------------------------------------
+
+@localprime_bp.route(
+    "/wallet/transactions",
+    methods=["GET"]
+)
+def get_wallet_transactions():
+    query = {}
+
+    wallet_id = request.args.get("wallet_id")
+    agent_id = request.args.get("agent_id")
+    transaction_type = request.args.get("type")
+    status = request.args.get("status")
+
+    if wallet_id:
+        try:
+            query["wallet_id"] = ObjectId(wallet_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid wallet_id"
+            }), 400
+
+    if agent_id:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    if transaction_type:
+        allowed_types = [
+            "withdraw",
+            "deposit",
+            "add_money_request"
+        ]
+
+        if transaction_type not in allowed_types:
+            return jsonify({
+                "success": False,
+                "message": (
+                    "type must be withdraw, deposit, "
+                    "or add_money_request"
+                )
+            }), 400
+
+        query["type"] = transaction_type
+
+    if status:
+        allowed_statuses = [
+            "pending",
+            "processing",
+            "success",
+            "approved",
+            "rejected",
+            "failed"
+        ]
+
+        if status not in allowed_statuses:
+            return jsonify({
+                "success": False,
+                "message": "Invalid transaction status"
+            }), 400
+
+        query["status"] = status
+
+    transactions = list(
+        db.wallet_transactions
+        .find(query)
+        .sort("created_at", -1)
+    )
+
+    return jsonify({
+        "success": True,
+        "count": len(transactions),
+        "data": convert_objectids(transactions)
+    }), 200
 
 
 
@@ -2464,8 +3463,1165 @@ def get_wallet_details():
 
 
 
+# ============================================================
+# SAVING WALLET MODULE
+# ============================================================
+
+def create_saving_wallet_voucher(
+    wallet,
+    amount,
+    voucher_type,
+    voucher_mode,
+    narration,
+    debit_ledger_id,
+    debit_ledger_name,
+    credit_ledger_id,
+    credit_ledger_name,
+    created_by="admin"
+):
+    now = datetime.utcnow()
+
+    # Sequential transaction number
+    txn = get_next_sequence("voucherTxn")
+
+    # Voucher number (BPV for Payment, BRV for Receipt)
+    date_string = now.strftime("%Y-%m-%d")
+    prefix = "BPV" if voucher_type == "Payment" else "BRV"
+    voucher_number = f"{prefix}-{date_string}-{txn}"
+
+    agent_id = str(wallet.get("agent_id"))
+    agent_name = wallet.get("agentName", "")
+
+    entries = [
+        {
+            "ledger_id": debit_ledger_id,
+            "ledger_name": debit_ledger_name,
+            "narration": narration,
+            "debit": float(amount),
+            "credit": 0.0,
+            "employee_id": agent_id,
+            "employee_name": agent_name
+        },
+        {
+            "ledger_id": credit_ledger_id,
+            "ledger_name": credit_ledger_name,
+            "narration": narration,
+            "debit": 0.0,
+            "credit": float(amount),
+            "employee_id": agent_id,
+            "employee_name": agent_name
+        }
+    ]
+
+    voucher = {
+        "voucher_number": voucher_number,
+        "voucher_type": voucher_type,
+        "voucher_mode": voucher_mode,
+        "txn": txn,
+        "from_id": created_by,
+        "date": now,
+        "narration": narration,
+        "amount": float(amount),
+        "entries": entries,
+        "created_by": created_by,
+        "created_at": now
+    }
+
+    result = db.vouchers.insert_one(voucher)
+    voucher["_id"] = str(result.inserted_id)
+
+    return voucher
 
 
+# ------------------------------------------------------------
+# 1. CREATE SAVING WALLET
+# POST /saving-wallet/create or /saving_wallet/create
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/create", methods=["POST"])
+@localprime_bp.route("/saving_wallet/create", methods=["POST"])
+def create_saving_wallet():
+    data = request.get_json(silent=True) or (request.form.to_dict() if request.form else {})
+
+    agent_id = data.get("agent_id")
+
+    if not agent_id:
+        return jsonify({
+            "success": False,
+            "message": "agent_id is required"
+        }), 400
+
+    try:
+        agent_oid = ObjectId(agent_id)
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Invalid agent_id"
+        }), 400
+
+    # Find agent
+    agent = members.find_one({
+        "_id": agent_oid,
+        "isAgent": True
+    })
+
+    if not agent:
+        return jsonify({
+            "success": False,
+            "message": "Agent not found"
+        }), 404
+
+    # Check saving wallet already exists
+    existing_wallet = db.saving_wallets.find_one({
+        "agent_id": agent_oid
+    })
+
+    if existing_wallet:
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet already exists for this agent",
+            "data": convert_objectids(existing_wallet)
+        }), 400
+
+    now = datetime.utcnow()
+
+    # Generate saving wallet number
+    seq = get_next_sequence("savingWalletNumber")
+    wallet_number = f"SWAL{seq:06d}"
+
+    saving_wallet = {
+        "walletNumber": wallet_number,
+        "walletType": "saving",
+
+        # Agent
+        "agent_id": agent_oid,
+        "agentCode": agent.get("agentCode"),
+        "agentName": agent.get("name"),
+
+        # Branch
+        "branch_id": agent.get("branch_id"),
+        "branchCode": agent.get("branchCode"),
+        "branchName": agent.get("branchName"),
+
+        # Saving Wallet: No credit limit, starts with 0.0 balance
+        "balance": 0.0,
+
+        # Summary
+        "totalWithdraw": 0.0,
+        "totalDeposit": 0.0,
+
+        "currency": "INR",
+        "status": "active",
+
+        "created_at": now,
+        "updated_at": now
+    }
+
+    result = db.saving_wallets.insert_one(saving_wallet)
+    saving_wallet["_id"] = str(result.inserted_id)
+
+    return jsonify({
+        "success": True,
+        "message": "Saving wallet created successfully",
+        "data": convert_objectids(saving_wallet)
+    }), 201
+
+
+# ------------------------------------------------------------
+# 2. GET SAVING WALLET LIST
+# GET /saving-wallet/list or /saving_wallet/list
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/list", methods=["GET"])
+@localprime_bp.route("/saving_wallet/list", methods=["GET"])
+def get_saving_wallet_list():
+    query = {}
+
+    agent_id = request.args.get("agent_id")
+    branch_id = request.args.get("branch_id")
+    status = request.args.get("status")
+
+    if agent_id:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    if branch_id:
+        try:
+            query["branch_id"] = ObjectId(branch_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid branch_id"
+            }), 400
+
+    if status:
+        query["status"] = status
+
+    wallets = list(
+        db.saving_wallets.find(query).sort("created_at", -1)
+    )
+
+    return jsonify({
+        "success": True,
+        "count": len(wallets),
+        "data": convert_objectids(wallets)
+    }), 200
+
+
+# ------------------------------------------------------------
+# 3. GET SAVING WALLET DETAILS
+# GET /saving-wallet/details or /saving_wallet/details
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/details", methods=["GET"])
+@localprime_bp.route("/saving_wallet/details", methods=["GET"])
+def get_saving_wallet_details():
+    wallet_id = request.args.get("wallet_id")
+    agent_id = request.args.get("agent_id")
+
+    if not wallet_id and not agent_id:
+        return jsonify({
+            "success": False,
+            "message": "wallet_id or agent_id is required"
+        }), 400
+
+    query = {}
+    if wallet_id:
+        try:
+            query["_id"] = ObjectId(wallet_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid wallet_id"
+            }), 400
+    elif agent_id:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    wallet = db.saving_wallets.find_one(query)
+
+    if not wallet:
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet not found"
+        }), 404
+
+    # Recent Transactions
+    transactions = list(
+        db.saving_wallet_transactions.find({
+            "wallet_id": wallet["_id"]
+        })
+        .sort("created_at", -1)
+        .limit(20)
+    )
+
+    agent = members.find_one({
+            "agentCode": wallet.get("agentCode"),
+            "isAgent": True
+        })
+
+
+    markup_amount = float(
+            (agent or {}).get("markup_amount", 0.0) or 0.0
+        )
+
+    response_data = {
+        "wallet": {
+            "_id": wallet["_id"],
+            "walletNumber": wallet.get("walletNumber"),
+            "walletType": wallet.get("walletType", "saving"),
+
+            "agent_id": wallet.get("agent_id"),
+            "agentCode": wallet.get("agentCode"),
+            "agentName": wallet.get("agentName"),
+
+            "branch_id": wallet.get("branch_id"),
+            "branchCode": wallet.get("branchCode"),
+            "branchName": wallet.get("branchName"),
+
+            "balance": float(wallet.get("balance", 0.0)),
+            "totalWithdraw": float(wallet.get("totalWithdraw", 0.0)),
+            "totalDeposit": float(wallet.get("totalDeposit", 0.0)),
+
+            "currency": wallet.get("currency", "INR"),
+            "status": wallet.get("status", "active"),
+
+            "created_at": wallet.get("created_at"),
+            "updated_at": wallet.get("updated_at")
+        },
+        "agent": {
+                "markup_amount": markup_amount
+        },
+        "transactions": transactions
+    }
+
+    return jsonify({
+        "success": True,
+        "message": "Saving wallet details fetched successfully",
+        "data": convert_objectids(response_data)
+    }), 200
+
+
+# ------------------------------------------------------------
+# 4. WITHDRAW FROM SAVING WALLET
+# POST /saving-wallet/withdraw or /saving_wallet/withdraw
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/withdraw", methods=["POST"])
+@localprime_bp.route("/saving_wallet/withdraw", methods=["POST"])
+def saving_wallet_withdraw():
+    data = request.get_json(silent=True) or (request.form.to_dict() if request.form else {})
+
+    wallet_id = data.get("wallet_id")
+    agent_id = data.get("agent_id")
+    amount = data.get("amount")
+    remarks = data.get("remarks", "")
+    created_by = data.get("created_by", "admin")
+
+    if not wallet_id and not agent_id:
+        return jsonify({
+            "success": False,
+            "message": "wallet_id or agent_id is required"
+        }), 400
+
+    if amount is None:
+        return jsonify({
+            "success": False,
+            "message": "amount is required"
+        }), 400
+
+    try:
+        amount = float(amount)
+    except (ValueError, TypeError):
+        return jsonify({
+            "success": False,
+            "message": "Invalid amount"
+        }), 400
+
+    if not math.isfinite(amount) or amount <= 0:
+        return jsonify({
+            "success": False,
+            "message": "Amount must be greater than 0"
+        }), 400
+
+    amount = round(amount, 2)
+
+    query = {}
+    if wallet_id:
+        try:
+            query["_id"] = ObjectId(wallet_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid wallet_id"
+            }), 400
+    else:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    wallet = db.saving_wallets.find_one(query)
+
+    if not wallet:
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet not found"
+        }), 404
+
+    if wallet.get("status") != "active":
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet is not active"
+        }), 400
+
+    current_balance = float(wallet.get("balance", 0.0))
+
+    if amount > current_balance:
+        return jsonify({
+            "success": False,
+            "message": "Insufficient balance in saving wallet",
+            "balance": current_balance,
+            "requestedAmount": amount
+        }), 400
+
+    now = datetime.utcnow()
+    new_balance = round(current_balance - amount, 2)
+    new_total_withdraw = round(float(wallet.get("totalWithdraw", 0.0)) + amount, 2)
+
+    # Concurrency safe update
+    update_res = db.saving_wallets.update_one(
+        {
+            "_id": wallet["_id"],
+            "status": "active",
+            "balance": current_balance
+        },
+        {
+            "$set": {
+                "balance": new_balance,
+                "totalWithdraw": new_total_withdraw,
+                "updated_at": now
+            }
+        }
+    )
+
+    if update_res.modified_count != 1:
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet balance changed concurrently. Please retry."
+        }), 409
+
+    # Create Voucher
+    narration = remarks or "Agent saving wallet withdrawal"
+    voucher = create_saving_wallet_voucher(
+        wallet=wallet,
+        amount=amount,
+        voucher_type="Receipt",
+        voucher_mode="Bank",
+        narration=narration,
+        debit_ledger_id=data.get("debit_ledger_id", "A42"),
+        debit_ledger_name=data.get("debit_ledger_name", "Wallet"),
+        credit_ledger_id=data.get("credit_ledger_id", "A11"),
+        credit_ledger_name=data.get("credit_ledger_name", "IDFC Bank"),
+        created_by=created_by
+    )
+
+    # Saving Wallet Transaction
+    transaction_seq = get_next_sequence("savingWalletTransaction")
+    transaction = {
+        "transactionNumber": f"SWT{transaction_seq:08d}",
+        "wallet_id": wallet["_id"],
+        "walletNumber": wallet.get("walletNumber"),
+        "agent_id": wallet.get("agent_id"),
+        "agentCode": wallet.get("agentCode"),
+        "agentName": wallet.get("agentName"),
+        "type": "withdraw",
+        "amount": amount,
+        "balanceBefore": current_balance,
+        "balanceAfter": new_balance,
+        "voucher_id": voucher["_id"],
+        "voucher_number": voucher["voucher_number"],
+        "remarks": remarks,
+        "status": "success",
+        "created_at": now
+    }
+
+    db.saving_wallet_transactions.insert_one(transaction)
+
+    updated_wallet = db.saving_wallets.find_one({"_id": wallet["_id"]})
+
+    return jsonify({
+        "success": True,
+        "message": "Amount withdrawn successfully from saving wallet",
+        "data": {
+            "wallet": convert_objectids(updated_wallet),
+            "transaction": convert_objectids(transaction),
+            "voucher": convert_objectids(voucher)
+        }
+    }), 200
+
+
+# ------------------------------------------------------------
+# 5. DEPOSIT INTO SAVING WALLET
+# POST /saving-wallet/deposit or /saving_wallet/deposit
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/deposit", methods=["POST"])
+@localprime_bp.route("/saving_wallet/deposit", methods=["POST"])
+def saving_wallet_deposit():
+    data = request.get_json(silent=True) or (request.form.to_dict() if request.form else {})
+
+    wallet_id = data.get("wallet_id")
+    agent_id = data.get("agent_id")
+    amount = data.get("amount")
+    remarks = data.get("remarks", "")
+    created_by = data.get("created_by", "admin")
+
+    if not wallet_id and not agent_id:
+        return jsonify({
+            "success": False,
+            "message": "wallet_id or agent_id is required"
+        }), 400
+
+    if amount is None:
+        return jsonify({
+            "success": False,
+            "message": "amount is required"
+        }), 400
+
+    try:
+        amount = float(amount)
+    except (ValueError, TypeError):
+        return jsonify({
+            "success": False,
+            "message": "Invalid amount"
+        }), 400
+
+    if not math.isfinite(amount) or amount <= 0:
+        return jsonify({
+            "success": False,
+            "message": "Amount must be greater than 0"
+        }), 400
+
+    amount = round(amount, 2)
+
+    query = {}
+    if wallet_id:
+        try:
+            query["_id"] = ObjectId(wallet_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid wallet_id"
+            }), 400
+    else:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    wallet = db.saving_wallets.find_one(query)
+
+    if not wallet:
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet not found"
+        }), 404
+
+    if wallet.get("status") != "active":
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet is not active"
+        }), 400
+
+    now = datetime.utcnow()
+    old_balance = float(wallet.get("balance", 0.0))
+    new_balance = round(old_balance + amount, 2)
+    new_total_deposit = round(float(wallet.get("totalDeposit", 0.0)) + amount, 2)
+
+    # Concurrency safe update
+    update_res = db.saving_wallets.update_one(
+        {
+            "_id": wallet["_id"],
+            "status": "active",
+            "balance": old_balance
+        },
+        {
+            "$set": {
+                "balance": new_balance,
+                "totalDeposit": new_total_deposit,
+                "updated_at": now
+            }
+        }
+    )
+
+    if update_res.modified_count != 1:
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet balance changed concurrently. Please retry."
+        }), 409
+
+    # Create Payment Voucher
+    narration = remarks or "Agent saving wallet deposit"
+    voucher = create_saving_wallet_voucher(
+        wallet=wallet,
+        amount=amount,
+        voucher_type="Payment",
+        voucher_mode="Bank",
+        narration=narration,
+        credit_ledger_id=data.get("debit_ledger_idx", "A42"),
+        credit_ledger_name=data.get("debit_ledger_namex", "Wallet"),
+        debit_ledger_id=data.get("credit_ledger_id", "A11"),
+        debit_ledger_name=data.get("credit_ledger_name", "IDBI Bank"),
+        created_by=created_by
+    )
+
+    # Saving Wallet Transaction
+    transaction_seq = get_next_sequence("savingWalletTransaction")
+    transaction = {
+        "transactionNumber": f"SWT{transaction_seq:08d}",
+        "wallet_id": wallet["_id"],
+        "walletNumber": wallet.get("walletNumber"),
+        "agent_id": wallet.get("agent_id"),
+        "agentCode": wallet.get("agentCode"),
+        "agentName": wallet.get("agentName"),
+        "type": "deposit",
+        "amount": amount,
+        "balanceBefore": old_balance,
+        "balanceAfter": new_balance,
+        "voucher_id": voucher["_id"],
+        "voucher_number": voucher["voucher_number"],
+        "remarks": remarks,
+        "status": "success",
+        "created_at": now
+    }
+
+    db.saving_wallet_transactions.insert_one(transaction)
+
+    updated_wallet = db.saving_wallets.find_one({"_id": wallet["_id"]})
+
+    return jsonify({
+        "success": True,
+        "message": "Amount deposited successfully into saving wallet",
+        "data": {
+            "wallet": convert_objectids(updated_wallet),
+            "transaction": convert_objectids(transaction),
+            "voucher": convert_objectids(voucher)
+        }
+    }), 200
+
+
+# ------------------------------------------------------------
+# 6. CREATE ADD MONEY REQUEST FOR SAVING WALLET
+# POST /saving-wallet/add-money-requests or /saving_wallet/add-money-requests
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/add-money-requests", methods=["POST"])
+@localprime_bp.route("/saving_wallet/add-money-requests", methods=["POST"])
+def create_saving_wallet_add_money_request():
+    data = request.get_json(silent=True) or (request.form.to_dict() if request.form else {})
+
+    amount = data.get("amount")
+    agent_id = data.get("agent_id")
+    wallet_id = data.get("wallet_id")
+    bank_name = data.get("bank_name")
+    bank_ledger_id = data.get("bank_ledger_id")
+    doc_url = data.get("doc_url", None)
+
+    # Support file upload for payment proof if passed as multipart/form-data
+    if request.files:
+        file_obj = request.files.get("file") or request.files.get("doc") or request.files.get("slip")
+        if file_obj and file_obj.filename:
+            try:
+                uploaded_url = upload_file_to_s3(file_obj, "localprime/saving_wallets")
+                if uploaded_url:
+                    doc_url = uploaded_url
+            except Exception:
+                pass
+
+    if amount is None or str(amount).strip() == "":
+        return jsonify({"success": False, "message": "amount is required"}), 400
+
+    if not agent_id and not wallet_id:
+        return jsonify({"success": False, "message": "agent_id or wallet_id is required"}), 400
+
+    if not bank_name or str(bank_name).strip() == "":
+        return jsonify({"success": False, "message": "bank_name is required"}), 400
+
+    if not bank_ledger_id or str(bank_ledger_id).strip() == "":
+        return jsonify({"success": False, "message": "bank_ledger_id is required"}), 400
+
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid amount"}), 400
+
+    if not math.isfinite(amount) or amount <= 0:
+        return jsonify({"success": False, "message": "Amount must be greater than 0"}), 400
+
+    amount = round(amount, 2)
+
+    query = {}
+    if wallet_id:
+        try:
+            query["_id"] = ObjectId(wallet_id)
+        except Exception:
+            return jsonify({"success": False, "message": "Invalid wallet_id"}), 400
+    else:
+        try:
+            agent_oid = ObjectId(agent_id)
+            query["agent_id"] = agent_oid
+        except Exception:
+            return jsonify({"success": False, "message": "Invalid agent_id"}), 400
+
+        # Validate agent
+        agent = members.find_one({"_id": agent_oid, "isAgent": True})
+        if not agent:
+            return jsonify({"success": False, "message": "Agent not found"}), 404
+
+    wallet = db.saving_wallets.find_one(query)
+
+    if not wallet:
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet not found for this agent"
+        }), 404
+
+    if wallet.get("status") != "active":
+        return jsonify({
+            "success": False,
+            "message": "Saving wallet is not active"
+        }), 400
+
+    now = datetime.utcnow()
+
+    payload = {
+        "wallet_id": wallet["_id"],
+        "walletNumber": wallet.get("walletNumber"),
+        "walletType": "saving",
+
+        "agent_id": wallet.get("agent_id"),
+        "agentCode": wallet.get("agentCode"),
+        "agentName": wallet.get("agentName"),
+
+        "doc_url": doc_url,
+        "amount": amount,
+        "bank_name": str(bank_name).strip(),
+        "bank_ledger_id": str(bank_ledger_id).strip(),
+
+        "status": "pending",
+
+        "approved_by": None,
+        "approved_at": None,
+
+        "rejected_by": None,
+        "rejected_at": None,
+        "rejected_reason": None,
+
+        "voucher_id": None,
+        "voucher_number": None,
+
+        "created_at": now,
+        "updated_at": now
+    }
+
+    result = db.saving_wallet_add_money_requests.insert_one(payload)
+    request_oid = result.inserted_id
+    payload["_id"] = request_oid
+
+    # Create pending transaction
+    transaction_seq = get_next_sequence("savingWalletTransaction")
+    transaction = {
+        "transactionNumber": f"SWT{transaction_seq:08d}",
+
+        "wallet_id": wallet["_id"],
+        "walletNumber": wallet.get("walletNumber"),
+
+        "agent_id": wallet.get("agent_id"),
+        "agentCode": wallet.get("agentCode"),
+        "agentName": wallet.get("agentName"),
+
+        "type": "add_money_request",
+        "amount": amount,
+
+        "bank_name": str(bank_name).strip(),
+        "bank_ledger_id": str(bank_ledger_id).strip(),
+
+        "request_id": request_oid,
+
+        "balanceBefore": float(wallet.get("balance", 0.0)),
+        "balanceAfter": float(wallet.get("balance", 0.0)),
+
+        "voucher_id": None,
+        "voucher_number": None,
+
+        "status": "pending",
+        "remarks": "Add money request submitted for saving wallet",
+
+        "created_at": now,
+        "updated_at": now
+    }
+
+    transaction_result = db.saving_wallet_transactions.insert_one(transaction)
+    transaction["_id"] = transaction_result.inserted_id
+
+    return jsonify({
+        "success": True,
+        "message": "Saving wallet add money request submitted successfully",
+        "data": {
+            "request": convert_objectids(payload),
+            "transaction": convert_objectids(transaction)
+        }
+    }), 201
+
+
+# ------------------------------------------------------------
+# 7. GET SAVING WALLET ADD MONEY REQUESTS
+# GET /saving-wallet/add-money-requests or /saving_wallet/add-money-requests
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/add-money-requests", methods=["GET"])
+@localprime_bp.route("/saving_wallet/add-money-requests", methods=["GET"])
+def get_saving_wallet_add_money_requests():
+    query = {}
+
+    status = request.args.get("status")
+    agent_id = request.args.get("agent_id")
+    wallet_id = request.args.get("wallet_id")
+
+    if status:
+        if status not in ["pending", "processing", "approved", "rejected"]:
+            return jsonify({
+                "success": False,
+                "message": "Invalid status"
+            }), 400
+        query["status"] = status
+
+    if agent_id:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    if wallet_id:
+        try:
+            query["wallet_id"] = ObjectId(wallet_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid wallet_id"
+            }), 400
+
+    requests_list = list(
+        db.saving_wallet_add_money_requests
+        .find(query)
+        .sort("created_at", -1)
+    )
+
+    return jsonify({
+        "success": True,
+        "count": len(requests_list),
+        "data": convert_objectids(requests_list)
+    }), 200
+
+
+# ------------------------------------------------------------
+# 8. APPROVE OR REJECT SAVING WALLET ADD MONEY REQUEST
+# POST /saving-wallet/add-money-requests/<request_id>/decision
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/add-money-requests/<request_id>/decision", methods=["POST"])
+@localprime_bp.route("/saving_wallet/add-money-requests/<request_id>/decision", methods=["POST"])
+def decide_saving_wallet_add_money_request(request_id):
+    data = request.get_json(silent=True) or (request.form.to_dict() if request.form else {})
+
+    status = data.get("status")
+    approved_by = data.get("approved_by", "admin")
+    rejected_by = data.get("rejected_by", approved_by)
+    rejected_reason = data.get("rejected_reason", "Add money request rejected")
+
+    if status not in ["approved", "rejected"]:
+        return jsonify({
+            "success": False,
+            "message": "status must be approved or rejected"
+        }), 400
+
+    try:
+        request_oid = ObjectId(request_id)
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Invalid request_id"
+        }), 400
+
+    now = datetime.utcnow()
+
+    # Atomically claim pending request
+    claim_result = db.saving_wallet_add_money_requests.update_one(
+        {
+            "_id": request_oid,
+            "status": "pending"
+        },
+        {
+            "$set": {
+                "status": "processing",
+                "updated_at": now
+            }
+        }
+    )
+
+    if claim_result.matched_count == 0:
+        existing_request = db.saving_wallet_add_money_requests.find_one({
+            "_id": request_oid
+        })
+
+        if not existing_request:
+            return jsonify({
+                "success": False,
+                "message": "Add money request not found"
+            }), 404
+
+        return jsonify({
+            "success": False,
+            "message": "Request already processed or is being processed",
+            "status": existing_request.get("status")
+        }), 409
+
+    request_doc = db.saving_wallet_add_money_requests.find_one({
+        "_id": request_oid
+    })
+
+    # ---------------- REJECT REQUEST ----------------
+    if status == "rejected":
+        now = datetime.utcnow()
+
+        db.saving_wallet_add_money_requests.update_one(
+            {
+                "_id": request_oid,
+                "status": "processing"
+            },
+            {
+                "$set": {
+                    "status": "rejected",
+                    "rejected_by": rejected_by,
+                    "rejected_reason": rejected_reason,
+                    "rejected_at": now,
+                    "updated_at": now
+                }
+            }
+        )
+
+        db.saving_wallet_transactions.update_one(
+            {
+                "request_id": request_oid
+            },
+            {
+                "$set": {
+                    "status": "rejected",
+                    "remarks": rejected_reason,
+                    "rejected_by": rejected_by,
+                    "updated_at": now
+                }
+            }
+        )
+
+        updated_request = db.saving_wallet_add_money_requests.find_one({"_id": request_oid})
+        updated_transaction = db.saving_wallet_transactions.find_one({"request_id": request_oid})
+
+        return jsonify({
+            "success": True,
+            "message": "Saving wallet add money request rejected successfully",
+            "data": {
+                "request": convert_objectids(updated_request),
+                "transaction": convert_objectids(updated_transaction)
+            }
+        }), 200
+
+    # ---------------- APPROVE REQUEST ----------------
+    try:
+        wallet = db.saving_wallets.find_one({
+            "_id": request_doc["wallet_id"]
+        })
+
+        if not wallet:
+            db.saving_wallet_add_money_requests.update_one(
+                {"_id": request_oid, "status": "processing"},
+                {"$set": {"status": "pending", "updated_at": datetime.utcnow()}}
+            )
+            return jsonify({
+                "success": False,
+                "message": "Saving wallet not found"
+            }), 404
+
+        if wallet.get("status") != "active":
+            db.saving_wallet_add_money_requests.update_one(
+                {"_id": request_oid, "status": "processing"},
+                {"$set": {"status": "pending", "updated_at": datetime.utcnow()}}
+            )
+            return jsonify({
+                "success": False,
+                "message": "Saving wallet is not active"
+            }), 400
+
+        amount = float(request_doc["amount"])
+        current_balance = float(wallet.get("balance", 0.0))
+        new_balance = round(current_balance + amount, 2)
+        new_total_deposit = round(float(wallet.get("totalDeposit", 0.0)) + amount, 2)
+
+        now = datetime.utcnow()
+
+        # Create Payment Voucher for added money
+        voucher = create_saving_wallet_voucher(
+            wallet=wallet,
+            amount=amount,
+            voucher_type="Payment",
+            voucher_mode="Bank",
+            narration="Approved agent saving wallet add money request",
+            credit_ledger_id="A42",
+            credit_ledger_name="Wallet",
+            debit_ledger_id=request_doc["bank_ledger_id"],
+            debit_ledger_name=request_doc["bank_name"],
+            created_by=approved_by
+        )
+
+        voucher_oid = ObjectId(voucher["_id"])
+
+        # Concurrency safe wallet balance update
+        wallet_update = db.saving_wallets.update_one(
+            {
+                "_id": wallet["_id"],
+                "status": "active",
+                "balance": current_balance
+            },
+            {
+                "$set": {
+                    "balance": new_balance,
+                    "totalDeposit": new_total_deposit,
+                    "updated_at": now
+                }
+            }
+        )
+
+        if wallet_update.modified_count != 1:
+            db.saving_wallet_add_money_requests.update_one(
+                {"_id": request_oid, "status": "processing"},
+                {
+                    "$set": {
+                        "status": "pending",
+                        "updated_at": datetime.utcnow(),
+                        "last_error": "Saving wallet balance changed during approval"
+                    }
+                }
+            )
+            return jsonify({
+                "success": False,
+                "message": "Saving wallet changed during approval. Please review voucher before retrying.",
+                "voucher_number": voucher.get("voucher_number")
+            }), 409
+
+        # Update pending transaction to success
+        db.saving_wallet_transactions.update_one(
+            {
+                "request_id": request_oid,
+                "status": "pending"
+            },
+            {
+                "$set": {
+                    "status": "success",
+                    "remarks": "Add money request approved",
+                    "balanceBefore": current_balance,
+                    "balanceAfter": new_balance,
+                    "voucher_id": voucher_oid,
+                    "voucher_number": voucher["voucher_number"],
+                    "approved_by": approved_by,
+                    "updated_at": now
+                }
+            }
+        )
+
+        # Complete request
+        db.saving_wallet_add_money_requests.update_one(
+            {
+                "_id": request_oid,
+                "status": "processing"
+            },
+            {
+                "$set": {
+                    "status": "approved",
+                    "approved_by": approved_by,
+                    "approved_at": now,
+                    "voucher_id": voucher_oid,
+                    "voucher_number": voucher["voucher_number"],
+                    "updated_at": now
+                }
+            }
+        )
+
+        updated_wallet = db.saving_wallets.find_one({"_id": wallet["_id"]})
+        updated_request = db.saving_wallet_add_money_requests.find_one({"_id": request_oid})
+        updated_transaction = db.saving_wallet_transactions.find_one({"request_id": request_oid})
+
+        return jsonify({
+            "success": True,
+            "message": "Saving wallet add money request approved successfully",
+            "data": {
+                "request": convert_objectids(updated_request),
+                "wallet": convert_objectids(updated_wallet),
+                "transaction": convert_objectids(updated_transaction),
+                "voucher": convert_objectids(voucher)
+            }
+        }), 200
+
+    except Exception as e:
+        db.saving_wallet_add_money_requests.update_one(
+            {"_id": request_oid, "status": "processing"},
+            {
+                "$set": {
+                    "last_error": str(e),
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        return jsonify({
+            "success": False,
+            "message": "Error processing saving wallet add money request",
+            "error": str(e),
+            "request_id": str(request_oid)
+        }), 500
+
+
+# ------------------------------------------------------------
+# 9. GET SAVING WALLET TRANSACTIONS
+# GET /saving-wallet/transactions or /saving_wallet/transactions
+# ------------------------------------------------------------
+@localprime_bp.route("/saving-wallet/transactions", methods=["GET"])
+@localprime_bp.route("/saving_wallet/transactions", methods=["GET"])
+def get_saving_wallet_transactions():
+    query = {}
+
+    wallet_id = request.args.get("wallet_id")
+    agent_id = request.args.get("agent_id")
+    transaction_type = request.args.get("type")
+    status = request.args.get("status")
+
+    if wallet_id:
+        try:
+            query["wallet_id"] = ObjectId(wallet_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid wallet_id"
+            }), 400
+
+    if agent_id:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    if transaction_type:
+        allowed_types = ["withdraw", "deposit", "add_money_request"]
+        if transaction_type not in allowed_types:
+            return jsonify({
+                "success": False,
+                "message": "type must be withdraw, deposit, or add_money_request"
+            }), 400
+        query["type"] = transaction_type
+
+    if status:
+        allowed_statuses = ["pending", "processing", "success", "approved", "rejected", "failed"]
+        if status not in allowed_statuses:
+            return jsonify({
+                "success": False,
+                "message": "Invalid transaction status"
+            }), 400
+        query["status"] = status
+
+    transactions = list(
+        db.saving_wallet_transactions
+        .find(query)
+        .sort("created_at", -1)
+    )
+
+    return jsonify({
+        "success": True,
+        "count": len(transactions),
+        "data": convert_objectids(transactions)
+    }), 200
 
 
 loan_collection = db["loans"]
@@ -10044,6 +12200,231 @@ COMMISSION_LEVELS = {
     7: 1.0
 }
 
+# =========================================================
+# GET COMMISSION YEAR
+# =========================================================
+
+def get_commission_year(loan, payment_date=None):
+    """
+    Loan ke start/disbursement date se commission year calculate karega.
+
+    1st Year -> firstYear
+    2nd Year -> secondYear
+    3rd Year -> thirdYear
+
+    Example:
+
+    Loan Start: 10-Oct-2026
+
+    10-Oct-2026 to 09-Oct-2027 = Year 1
+    10-Oct-2027 to 09-Oct-2028 = Year 2
+    10-Oct-2028 to 09-Oct-2029 = Year 3
+    """
+
+    loan_date = (
+        loan.get("disbursement_date")
+        or loan.get("loan_date")
+        or loan.get("loanDate")
+        or loan.get("approved_at")
+        or loan.get("approvedAt")
+        or loan.get("created_at")
+        or loan.get("createdAt")
+    )
+
+    if not loan_date:
+        return 1
+
+    # String -> datetime
+    if isinstance(loan_date, str):
+        try:
+            loan_date = datetime.fromisoformat(
+                loan_date.replace("Z", "+00:00")
+            )
+
+            if loan_date.tzinfo:
+                loan_date = loan_date.replace(
+                    tzinfo=None
+                )
+
+        except Exception:
+            return 1
+
+    # Payment ki date use karo.
+    # Agar payment date nahi hai to today.
+    if payment_date:
+        if isinstance(payment_date, str):
+            try:
+                payment_date = datetime.fromisoformat(
+                    payment_date.replace("Z", "+00:00")
+                )
+
+                if payment_date.tzinfo:
+                    payment_date = payment_date.replace(
+                        tzinfo=None
+                    )
+
+            except Exception:
+                payment_date = datetime.utcnow()
+
+        check_date = payment_date
+    else:
+        check_date = datetime.utcnow()
+
+    completed_years = (
+        check_date.year -
+        loan_date.year
+    )
+
+    if (
+        check_date.month,
+        check_date.day
+    ) < (
+        loan_date.month,
+        loan_date.day
+    ):
+        completed_years -= 1
+
+    commission_year = completed_years + 1
+
+    # Minimum Year 1
+    if commission_year < 1:
+        commission_year = 1
+
+    # Maximum Year 3
+    if commission_year > 3:
+        commission_year = 3
+
+    return commission_year
+
+
+# =========================================================
+# GET PRODUCT COMMISSION
+# =========================================================
+
+def get_product_commission_percentage(
+    product_id,
+    agent_level,
+    commission_year
+):
+    """
+    Product ke commission slab se percentage uthata hai.
+
+    product_id
+    agent_level
+    commission_year
+
+    Example:
+
+    Level 1
+    Year 1 -> firstYear
+    Year 2 -> secondYear
+    Year 3 -> thirdYear
+    """
+
+    if not product_id:
+        return 0.0
+
+    try:
+        agent_level = int(agent_level)
+        commission_year = int(commission_year)
+    except (ValueError, TypeError):
+        return 0.0
+
+    # ObjectId + string dono support
+    product_oid = None
+
+    try:
+        product_oid = ObjectId(
+            str(product_id)
+        )
+    except Exception:
+        pass
+
+    query = {
+        "productType": "Loan",
+        "status": "active"
+    }
+
+    # Pehle ObjectId se search
+    if product_oid:
+
+        slab = db.commission_slabs.find_one({
+            **query,
+            "productId": product_oid
+        })
+
+    else:
+        slab = None
+
+    # String productId fallback
+    if not slab:
+
+        slab = db.commission_slabs.find_one({
+            **query,
+            "productId": str(product_id)
+        })
+
+    if not slab:
+        return 0.0
+
+    # Find agent level
+    for level_data in slab.get(
+        "levels",
+        []
+    ):
+
+        try:
+            slab_level = int(
+                level_data.get(
+                    "level",
+                    0
+                )
+            )
+        except (ValueError, TypeError):
+            continue
+
+        if slab_level != agent_level:
+            continue
+
+        # -----------------------------
+        # YEAR 1
+        # -----------------------------
+
+        if commission_year == 1:
+            return float(
+                level_data.get(
+                    "firstYear",
+                    0
+                ) or 0
+            )
+
+        # -----------------------------
+        # YEAR 2
+        # -----------------------------
+
+        if commission_year == 2:
+            return float(
+                level_data.get(
+                    "secondYear",
+                    0
+                ) or 0
+            )
+
+        # -----------------------------
+        # YEAR 3
+        # -----------------------------
+
+        if commission_year == 3:
+            return float(
+                level_data.get(
+                    "thirdYear",
+                    0
+                ) or 0
+            )
+
+        return 0.0
+
+    return 0.0
 
 # =========================================================
 # OBJECT ID HELPER
@@ -10345,486 +12726,6 @@ def format_date(value):
     return str(value)
 
 
-# =========================================================
-# LIVE COMMISSION API
-# =========================================================
-
-# @localprime_bp.route(
-#     "/agentcommission_latest",
-#     methods=["POST"]
-# )
-# def agentcommission_latest():
-
-#     try:
-
-#         data = request.get_json(silent=True) or {}
-
-#         # -------------------------------------------------
-#         # Agent ID is required
-#         # -------------------------------------------------
-
-#         agent_id = data.get("agent_id")
-
-#         if not agent_id:
-#             return jsonify({
-#                 "status": False,
-#                 "message": "agent_id is required"
-#             }), 400
-
-#         # -------------------------------------------------
-#         # Validate agent
-#         # -------------------------------------------------
-
-#         agent = get_agent(agent_id)
-
-#         if not agent:
-#             return jsonify({
-#                 "status": False,
-#                 "message": "Agent not found"
-#             }), 404
-
-#         # -------------------------------------------------
-#         # Hierarchy
-#         # -------------------------------------------------
-
-#         hierarchy = get_agent_hierarchy(
-#             agent_id,
-#             max_levels=7
-#         )
-
-#         if not hierarchy:
-#             return jsonify({
-#                 "status": False,
-#                 "message": "Agent hierarchy not found"
-#             }), 404
-
-#         # -------------------------------------------------
-#         # Current agent is level 1
-#         # -------------------------------------------------
-
-#         hierarchy_agent_ids = [
-#             item["agent_id"]
-#             for item in hierarchy
-#         ]
-
-#         # -------------------------------------------------
-#         # Find loans directly generated by requested agent
-#         #
-#         # Loan agent_id is ObjectId in your current model.
-#         # -------------------------------------------------
-
-#         object_id = convert_object_id(agent_id)
-
-#         loan_query = []
-
-#         if object_id:
-#             loan_query.append({
-#                 "agent_id": object_id
-#             })
-
-#         loan_query.append({
-#             "agent_id": str(agent_id)
-#         })
-
-#         loans = []
-
-#         processed_loans = set()
-
-#         for query in loan_query:
-
-#             for loan in loan_collection.find(query):
-
-#                 loan_id = str(
-#                     loan.get("_id")
-#                 )
-
-#                 if loan_id in processed_loans:
-#                     continue
-
-#                 processed_loans.add(loan_id)
-
-#                 loans.append(loan)
-
-#         # =================================================
-#         # RESPONSE DATA
-#         # =================================================
-
-#         accounts = []
-#         loan_summary = []
-
-#         grand_paid_emi = 0
-#         grand_commission = 0
-
-#         # =================================================
-#         # LOOP LOANS
-#         # =================================================
-
-#         for loan in loans:
-
-#             loan_id = str(
-#                 loan.get("_id")
-#             )
-
-#             # -------------------------------------------------
-#             # Loan number
-#             # -------------------------------------------------
-
-#             account_number = (
-#                 loan.get("loan_number")
-#                 or loan.get("loanNumber")
-#                 or loan.get("account_number")
-#                 or loan.get("accountNumber")
-#                 or loan_id
-#             )
-
-#             # -------------------------------------------------
-#             # Customer
-#             # -------------------------------------------------
-
-#             member_name = get_member_name(loan)
-
-#             # -------------------------------------------------
-#             # Loan date
-#             # -------------------------------------------------
-
-#             loan_date = (
-#                 loan.get("loan_date")
-#                 or loan.get("loanDate")
-#                 or loan.get("approved_at")
-#                 or loan.get("approvedAt")
-#                 or loan.get("created_at")
-#                 or loan.get("createdAt")
-#             )
-
-#             loan_date = format_date(
-#                 loan_date
-#             )
-
-#             # -------------------------------------------------
-#             # Original/direct agent
-#             # -------------------------------------------------
-
-#             loan_agent_id = (
-#                 loan.get("agent_id")
-#             )
-
-#             if isinstance(
-#                 loan_agent_id,
-#                 ObjectId
-#             ):
-#                 loan_agent_id = str(
-#                     loan_agent_id
-#                 )
-#             elif loan_agent_id:
-#                 loan_agent_id = str(
-#                     loan_agent_id
-#                 )
-
-#             direct_agent = get_agent(
-#                 loan_agent_id
-#             )
-
-#             direct_agent_name = get_agent_name(
-#                 direct_agent
-#             )
-
-#             # -------------------------------------------------
-#             # Calculate LIVE paid EMI
-#             # -------------------------------------------------
-
-#             emi_data = get_loan_paid_emi(
-#                 loan
-#             )
-
-#             paid_emi_amount = emi_data[
-#                 "paid_emi_amount"
-#             ]
-
-#             paid_emi_count = emi_data[
-#                 "paid_emi_count"
-#             ]
-
-#             # -------------------------------------------------
-#             # Loan total commission
-#             # -------------------------------------------------
-
-#             loan_total_commission = 0
-
-#             loan_commission_details = []
-
-#             # -------------------------------------------------
-#             # Calculate commission for
-#             # Level 1 -> Level 7
-#             # -------------------------------------------------
-
-#             for hierarchy_item in hierarchy:
-
-#                 level = hierarchy_item[
-#                     "level"
-#                 ]
-
-#                 hierarchy_agent_id = (
-#                     hierarchy_item[
-#                         "agent_id"
-#                     ]
-#                 )
-
-#                 hierarchy_agent_name = (
-#                     hierarchy_item[
-#                         "agent_name"
-#                     ]
-#                 )
-
-#                 percentage = COMMISSION_LEVELS.get(
-#                     level,
-#                     0
-#                 )
-
-#                 # ---------------------------------------------
-#                 # Commission
-#                 # ---------------------------------------------
-
-#                 commission = (
-#                     paid_emi_amount
-#                     * percentage
-#                     / 100
-#                 )
-
-#                 commission = round(
-#                     commission,
-#                     2
-#                 )
-
-#                 loan_total_commission += (
-#                     commission
-#                 )
-
-#                 # ---------------------------------------------
-#                 # Direct / Referral
-#                 # ---------------------------------------------
-
-#                 if level == 1:
-#                     commission_type = "Direct"
-#                 else:
-#                     commission_type = "Referral"
-
-#                 # ---------------------------------------------
-#                 # Old API style flattened account
-#                 # ---------------------------------------------
-
-#                 account_data = {
-
-#                     "account_number":
-#                         account_number,
-
-#                     "agent_id":
-#                         hierarchy_agent_id,
-
-#                     "agent_name":
-#                         hierarchy_agent_name,
-
-#                     "agent_level":
-#                         level,
-
-#                     "commission_percentage":
-#                         percentage,
-
-#                     "paid_emi_amount":
-#                         round(
-#                             paid_emi_amount,
-#                             2
-#                         ),
-
-#                     "paid_emi_count":
-#                         paid_emi_count,
-
-#                     "commission":
-#                         commission,
-
-#                     "date":
-#                         loan_date,
-
-#                     "member_name":
-#                         member_name,
-
-#                     "remark":
-#                         f"Level {level} commission",
-
-#                     "type":
-#                         commission_type,
-
-#                     # Original loan agent
-#                     "account_agent_id":
-#                         loan_agent_id,
-
-#                     "account_agent_name":
-#                         direct_agent_name
-#                 }
-
-#                 accounts.append(
-#                     account_data
-#                 )
-
-#                 # ---------------------------------------------
-#                 # Detailed loan commission
-#                 # ---------------------------------------------
-
-#                 loan_commission_details.append({
-
-#                     "agent_id":
-#                         hierarchy_agent_id,
-
-#                     "agent_name":
-#                         hierarchy_agent_name,
-
-#                     "level":
-#                         level,
-
-#                     "percentage":
-#                         percentage,
-
-#                     "commission":
-#                         commission
-
-#                 })
-
-#             # =================================================
-#             # LOAN TOTAL
-#             # =================================================
-
-#             loan_total_commission = round(
-#                 loan_total_commission,
-#                 2
-#             )
-
-#             grand_paid_emi += (
-#                 paid_emi_amount
-#             )
-
-#             grand_commission += (
-#                 loan_total_commission
-#             )
-
-#             # -------------------------------------------------
-#             # Loan summary
-#             # -------------------------------------------------
-
-#             loan_summary.append({
-
-#                 "loan_id":
-#                     loan_id,
-
-#                 "account_number":
-#                     account_number,
-
-#                 "member_name":
-#                     member_name,
-
-#                 "loan_agent_id":
-#                     loan_agent_id,
-
-#                 "loan_agent_name":
-#                     direct_agent_name,
-
-#                 "loan_date":
-#                     loan_date,
-
-#                 "paid_emi_count":
-#                     paid_emi_count,
-
-#                 "paid_emi_amount":
-#                     round(
-#                         paid_emi_amount,
-#                         2
-#                     ),
-
-#                 "total_commission":
-#                     loan_total_commission,
-
-#                 "commission_details":
-#                     loan_commission_details
-#             })
-
-#         # =================================================
-#         # FINAL RESPONSE
-#         # =================================================
-
-#         return jsonify({
-
-#             "status": True,
-
-#             "message":
-#                 "Live EMI commission calculated successfully",
-
-#             # Requested agent
-#             "agent": {
-
-#                 "agent_id":
-#                     str(agent.get("_id")),
-
-#                 "agent_code":
-#                     agent.get("agentCode"),
-
-#                 "agent_name":
-#                     get_agent_name(agent)
-
-#             },
-
-#             # Hierarchy
-#             "hierarchy":
-#                 hierarchy,
-
-#             # Old API style flat data
-#             "accounts":
-#                 accounts,
-
-#             # Loan-wise total commission
-#             "loan_summary":
-#                 loan_summary,
-
-#             # Overall summary
-#             "summary": {
-
-#                 "total_loans":
-#                     len(loans),
-
-#                 "total_paid_emi":
-#                     round(
-#                         grand_paid_emi,
-#                         2
-#                     ),
-
-#                 "total_commission":
-#                     round(
-#                         grand_commission,
-#                         2
-#                     )
-
-#             },
-
-#             "len":
-#                 len(accounts)
-
-#         }), 200
-
-#     except Exception as e:
-
-#         import traceback
-
-#         traceback.print_exc()
-
-#         return jsonify({
-
-#             "status": False,
-
-#             "message":
-#                 "Error calculating commission",
-
-#             "error":
-#                 str(e)
-
-#         }), 500
-
 
 @localprime_bp.route(
     "/agentcommission_latest",
@@ -10948,14 +12849,53 @@ def agentcommission_latest():
             # COMMISSION %
             # =================================================
 
-            commission_percentage = COMMISSION_LEVELS.get(
-                my_level,
-                0
+            # commission_percentage = COMMISSION_LEVELS.get(
+            #     my_level,
+            #     0
+            # )
+
+            # # =================================================
+            # # COMMISSION
+            # # =================================================
+
+            # commission = round(
+            #     paid_emi_amount
+            #     * commission_percentage
+            #     / 100,
+            #     2
+            # )
+
+            # =====================================================
+# GET LOAN PRODUCT
+# =====================================================
+
+            loan_product_id = (
+                loan.get("loan_product_id")
             )
 
-            # =================================================
+            # =====================================================
+            # GET COMMISSION YEAR
+            # =====================================================
+
+            commission_year = get_commission_year(
+                loan
+            )
+
+            # =====================================================
+            # GET PRODUCT SLAB COMMISSION
+            # =====================================================
+
+            commission_percentage = (
+                get_product_commission_percentage(
+                    product_id=loan_product_id,
+                    agent_level=my_level,
+                    commission_year=commission_year
+                )
+            )
+
+            # =====================================================
             # COMMISSION
-            # =================================================
+            # =====================================================
 
             commission = round(
                 paid_emi_amount
@@ -10963,6 +12903,7 @@ def agentcommission_latest():
                 / 100,
                 2
             )
+#thik
 
             # =================================================
             # LOAN INFORMATION
@@ -11051,8 +12992,11 @@ def agentcommission_latest():
                 "agent_level":
                     my_level,
 
-                "commission_percentage":
-                    commission_percentage,
+                # "commission_percentage":
+                #     commission_percentage,
+
+                "commission_year":
+                    commission_year,
 
                 # EMI
                 "paid_emi_count":
@@ -11072,11 +13016,17 @@ def agentcommission_latest():
                     commission_type,
 
                 "remark":
+                    # (
+                    #     f"Level {my_level} "
+                    #     f"{commission_percentage}% "
+                    #     f"commission"
+                    # )
                     (
-                        f"Level {my_level} "
-                        f"{commission_percentage}% "
-                        f"commission"
-                    )
+        f"Level {my_level} "
+        f"Year {commission_year} "
+        f"{commission_percentage}% "
+        f"commission"
+    )
             }
 
             accounts.append(
@@ -11116,8 +13066,11 @@ def agentcommission_latest():
                 "agent_level":
                     my_level,
 
-                "commission_percentage":
-                    commission_percentage,
+                # "commission_percentage":
+                #     commission_percentage,
+
+                "commission_year":
+                    commission_year,
 
                 "paid_emi_count":
                     paid_emi_count,
@@ -11216,3 +13169,1294 @@ def agentcommission_latest():
                 str(e)
 
         }), 500
+
+
+
+@localprime_bp.route("/commission-levels", methods=["POST"])
+def create_commission_level():
+
+    try:
+
+        data = request.get_json(silent=True) or {}
+
+        level = data.get("level")
+        level_name = data.get("levelName", "")
+        status = data.get("status", "active")
+
+        # -----------------------------------------
+        # Validation
+        # -----------------------------------------
+
+        if level is None:
+            return jsonify({
+                "success": False,
+                "message": "level is required"
+            }), 400
+
+        try:
+            level = int(level)
+        except (ValueError, TypeError):
+
+            return jsonify({
+                "success": False,
+                "message": "level must be an integer"
+            }), 400
+
+        if level <= 0:
+            return jsonify({
+                "success": False,
+                "message": "level must be greater than 0"
+            }), 400
+
+        # -----------------------------------------
+        # Duplicate level
+        # -----------------------------------------
+
+        existing = db.commission_levels.find_one({
+            "level": level
+        })
+
+        if existing:
+
+            return jsonify({
+                "success": False,
+                "message": "Level already exists",
+                "data": convert_objectids(existing)
+            }), 400
+
+        # -----------------------------------------
+        # Create
+        # -----------------------------------------
+
+        now = datetime.utcnow()
+
+        payload = {
+            "level": level,
+            "levelName": level_name,
+            "status": status,
+            "created_at": now,
+            "updated_at": now
+        }
+
+        result = db.commission_levels.insert_one(payload)
+
+        payload["_id"] = str(result.inserted_id)
+
+        return jsonify({
+            "success": True,
+            "message": "Commission level created successfully",
+            "data": convert_objectids(payload)
+        }), 201
+
+    except Exception as e:
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+@localprime_bp.route("/commission-levels", methods=["GET"])
+def get_commission_levels():
+
+    try:
+
+        query = {}
+
+        status = request.args.get("status")
+        level = request.args.get("level")
+
+        if status:
+            query["status"] = status
+
+        if level:
+
+            try:
+                query["level"] = int(level)
+            except ValueError:
+
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid level"
+                }), 400
+
+        levels = list(
+            db.commission_levels
+            .find(query)
+            .sort("level", 1)
+        )
+
+        return jsonify({
+            "success": True,
+            "count": len(levels),
+            "data": convert_objectids(levels)
+        }), 200
+
+    except Exception as e:
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+@localprime_bp.route("/commission-levels/<level_id>", methods=["GET"])
+def get_commission_level(level_id):
+
+    try:
+
+        level_doc = db.commission_levels.find_one({
+            "_id": ObjectId(level_id)
+        })
+
+        if not level_doc:
+
+            return jsonify({
+                "success": False,
+                "message": "Commission level not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "data": convert_objectids(level_doc)
+        }), 200
+
+    except Exception:
+
+        return jsonify({
+            "success": False,
+            "message": "Invalid level_id"
+        }), 400
+
+@localprime_bp.route("/commission-levels/<level_id>", methods=["POST"])
+def update_commission_level(level_id):
+
+    try:
+
+        level_doc = db.commission_levels.find_one({
+            "_id": ObjectId(level_id)
+        })
+
+        if not level_doc:
+
+            return jsonify({
+                "success": False,
+                "message": "Commission level not found"
+            }), 404
+
+        data = request.get_json(silent=True) or {}
+
+        update_data = {}
+
+        # -----------------------------------------
+        # Level
+        # -----------------------------------------
+
+        if "level" in data:
+
+            try:
+                new_level = int(data["level"])
+            except (ValueError, TypeError):
+
+                return jsonify({
+                    "success": False,
+                    "message": "level must be an integer"
+                }), 400
+
+            if new_level <= 0:
+
+                return jsonify({
+                    "success": False,
+                    "message": "level must be greater than 0"
+                }), 400
+
+            duplicate = db.commission_levels.find_one({
+                "level": new_level,
+                "_id": {
+                    "$ne": ObjectId(level_id)
+                }
+            })
+
+            if duplicate:
+
+                return jsonify({
+                    "success": False,
+                    "message": "Level already exists"
+                }), 400
+
+            update_data["level"] = new_level
+
+        # -----------------------------------------
+        # Level Name
+        # -----------------------------------------
+
+        if "levelName" in data:
+            update_data["levelName"] = data["levelName"]
+
+        # -----------------------------------------
+        # Status
+        # -----------------------------------------
+
+        if "status" in data:
+
+            if data["status"] not in [
+                "active",
+                "inactive"
+            ]:
+
+                return jsonify({
+                    "success": False,
+                    "message": "status must be active or inactive"
+                }), 400
+
+            update_data["status"] = data["status"]
+
+        update_data["updated_at"] = datetime.utcnow()
+
+        db.commission_levels.update_one(
+            {
+                "_id": ObjectId(level_id)
+            },
+            {
+                "$set": update_data
+            }
+        )
+
+        level_doc.update(update_data)
+
+        return jsonify({
+            "success": True,
+            "message": "Commission level updated successfully",
+            "data": convert_objectids(level_doc)
+        }), 200
+
+    except Exception as e:
+
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+@localprime_bp.route("/commission-levels/<level_id>", methods=["DELETE"])
+def delete_commission_level(level_id):
+
+    try:
+
+        level_doc = db.commission_levels.find_one({
+            "_id": ObjectId(level_id)
+        })
+
+        if not level_doc:
+
+            return jsonify({
+                "success": False,
+                "message": "Commission level not found"
+            }), 404
+
+        # -----------------------------------------
+        # Check level usage
+        # -----------------------------------------
+
+        used = db.commission_slabs.find_one({
+            "levels.level_id": ObjectId(level_id)
+        })
+
+        if not used:
+
+            # Also support string level_id
+            used = db.commission_slabs.find_one({
+                "levels.level_id": str(level_id)
+            })
+
+        if used:
+
+            return jsonify({
+                "success": False,
+                "message": "Level is already used in commission slab. Cannot delete."
+            }), 400
+
+        db.commission_levels.delete_one({
+            "_id": ObjectId(level_id)
+        })
+
+        return jsonify({
+            "success": True,
+            "message": "Commission level deleted successfully"
+        }), 200
+
+    except Exception:
+
+        return jsonify({
+            "success": False,
+            "message": "Invalid level_id"
+        }), 400
+
+@localprime_bp.route("/commission-slabs", methods=["POST"])
+def create_commission_slab():
+
+    try:
+
+        data = request.get_json(silent=True) or {}
+
+        product_type = data.get("productType")
+        product_id = data.get("productId")
+        product_name = data.get("productName")
+        year = data.get("year")
+        levels = data.get("levels")
+
+        # -----------------------------------------
+        # Required fields
+        # -----------------------------------------
+
+        if not product_type:
+
+            return jsonify({
+                "success": False,
+                "message": "productType is required"
+            }), 400
+
+        if not product_id:
+
+            return jsonify({
+                "success": False,
+                "message": "productId is required"
+            }), 400
+
+        if not product_name:
+
+            return jsonify({
+                "success": False,
+                "message": "productName is required"
+            }), 400
+
+        if year is None:
+
+            return jsonify({
+                "success": False,
+                "message": "year is required"
+            }), 400
+
+        if not isinstance(levels, list) or len(levels) == 0:
+
+            return jsonify({
+                "success": False,
+                "message": "levels must be a non-empty array"
+            }), 400
+
+        # -----------------------------------------
+        # Year
+        # -----------------------------------------
+
+        try:
+
+            year = int(year)
+
+        except (ValueError, TypeError):
+
+            return jsonify({
+                "success": False,
+                "message": "year must be an integer"
+            }), 400
+
+        if year <= 0:
+
+            return jsonify({
+                "success": False,
+                "message": "year must be greater than 0"
+            }), 400
+
+        # -----------------------------------------
+        # Duplicate slab
+        # -----------------------------------------
+
+        existing = db.commission_slabs.find_one({
+            "productType": product_type,
+            "productId": str(product_id),
+            "year": year
+        })
+
+        if existing:
+
+            return jsonify({
+                "success": False,
+                "message": "Commission slab already exists for this product and year",
+                "data": convert_objectids(existing)
+            }), 400
+
+        # -----------------------------------------
+        # Prepare levels
+        # -----------------------------------------
+
+        final_levels = []
+
+        used_level_ids = set()
+
+        for item in levels:
+
+            level_id = item.get("level_id")
+
+            if not level_id:
+
+                return jsonify({
+                    "success": False,
+                    "message": "level_id is required"
+                }), 400
+
+            # -------------------------------------
+            # Validate ObjectId
+            # -------------------------------------
+
+            try:
+
+                level_oid = ObjectId(level_id)
+
+            except Exception:
+
+                return jsonify({
+                    "success": False,
+                    "message": f"Invalid level_id: {level_id}"
+                }), 400
+
+            # -------------------------------------
+            # Find level
+            # -------------------------------------
+
+            level_doc = db.commission_levels.find_one({
+                "_id": level_oid
+            })
+
+            if not level_doc:
+
+                return jsonify({
+                    "success": False,
+                    "message": f"Commission level not found: {level_id}"
+                }), 404
+
+            # -------------------------------------
+            # Only active level
+            # -------------------------------------
+
+            if level_doc.get("status") != "active":
+
+                return jsonify({
+                    "success": False,
+                    "message": f"Level {level_doc.get('level')} is inactive"
+                }), 400
+
+            # -------------------------------------
+            # Duplicate level
+            # -------------------------------------
+
+            if str(level_oid) in used_level_ids:
+
+                return jsonify({
+                    "success": False,
+                    "message": f"Level {level_doc.get('level')} added multiple times"
+                }), 400
+
+            used_level_ids.add(str(level_oid))
+
+            # -------------------------------------
+            # Commission values
+            # -------------------------------------
+
+            try:
+
+                first_year = float(
+                    item.get("firstYear", 0)
+                )
+
+                second_year = float(
+                    item.get("secondYear", 0)
+                )
+
+                third_year = float(
+                    item.get("thirdYear", 0)
+                )
+
+            except (ValueError, TypeError):
+
+                return jsonify({
+                    "success": False,
+                    "message": "Commission values must be numeric"
+                }), 400
+
+            # -------------------------------------
+            # Percentage validation
+            # -------------------------------------
+
+            for value in [
+                first_year,
+                second_year,
+                third_year
+            ]:
+
+                if value < 0 or value > 100:
+
+                    return jsonify({
+                        "success": False,
+                        "message": "Commission percentage must be between 0 and 100"
+                    }), 400
+
+            # -------------------------------------
+            # Save level snapshot
+            # -------------------------------------
+
+            final_levels.append({
+
+                "level_id": level_oid,
+
+                "level": level_doc.get(
+                    "level"
+                ),
+
+                "levelName": level_doc.get(
+                    "levelName"
+                ),
+
+                "firstYear": first_year,
+
+                "secondYear": second_year,
+
+                "thirdYear": third_year
+            })
+
+        # -----------------------------------------
+        # Create slab
+        # -----------------------------------------
+
+        now = datetime.utcnow()
+
+        payload = {
+
+            "productType": product_type,
+
+            "productId": str(
+                product_id
+            ),
+
+            "productName": product_name,
+
+            "year": year,
+
+            "levels": final_levels,
+
+            "status": data.get(
+                "status",
+                "active"
+            ),
+
+            "created_at": now,
+
+            "updated_at": now
+        }
+
+        result = db.commission_slabs.insert_one(
+            payload
+        )
+
+        payload["_id"] = str(
+            result.inserted_id
+        )
+
+        return jsonify({
+
+            "success": True,
+
+            "message":
+                "Commission slab created successfully",
+
+            "data":
+                convert_objectids(payload)
+
+        }), 201
+
+    except Exception as e:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e)
+
+        }), 500
+
+@localprime_bp.route("/commission-slabs", methods=["GET"])
+def get_commission_slabs():
+
+    try:
+
+        query = {}
+
+        product_type = request.args.get(
+            "productType"
+        )
+
+        product_id = request.args.get(
+            "productId"
+        )
+
+        year = request.args.get(
+            "year"
+        )
+
+        status = request.args.get(
+            "status"
+        )
+
+        # -----------------------------------------
+        # Filters
+        # -----------------------------------------
+
+        if product_type:
+            query["productType"] = product_type
+
+        if product_id:
+            query["productId"] = product_id
+
+        if year:
+
+            try:
+                query["year"] = int(year)
+
+            except ValueError:
+
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid year"
+                }), 400
+
+        if status:
+            query["status"] = status
+
+        # -----------------------------------------
+        # Get
+        # -----------------------------------------
+
+        slabs = list(
+            db.commission_slabs
+            .find(query)
+            .sort("created_at", -1)
+        )
+
+        return jsonify({
+
+            "success": True,
+
+            "count": len(slabs),
+
+            "data":
+                convert_objectids(slabs)
+
+        }), 200
+
+    except Exception as e:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e)
+
+        }), 500
+
+@localprime_bp.route("/commission-slabs/<slab_id>", methods=["GET"])
+def get_commission_slab(slab_id):
+
+    try:
+
+        slab = db.commission_slabs.find_one({
+            "_id": ObjectId(slab_id)
+        })
+
+        if not slab:
+
+            return jsonify({
+                "success": False,
+                "message": "Commission slab not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "data": convert_objectids(slab)
+        }), 200
+
+    except Exception:
+
+        return jsonify({
+            "success": False,
+            "message": "Invalid slab_id"
+        }), 400
+
+@localprime_bp.route("/commission-slabs/<slab_id>", methods=["POST"])
+def update_commission_slab(slab_id):
+
+    try:
+
+        slab = db.commission_slabs.find_one({
+            "_id": ObjectId(slab_id)
+        })
+
+        if not slab:
+
+            return jsonify({
+                "success": False,
+                "message": "Commission slab not found"
+            }), 404
+
+        data = request.get_json(
+            silent=True
+        ) or {}
+
+        update_data = {}
+
+        # -----------------------------------------
+        # Basic fields
+        # -----------------------------------------
+
+        if "productType" in data:
+            update_data["productType"] = data[
+                "productType"
+            ]
+
+        if "productId" in data:
+            update_data["productId"] = str(
+                data["productId"]
+            )
+
+        if "productName" in data:
+            update_data["productName"] = data[
+                "productName"
+            ]
+
+        if "year" in data:
+
+            try:
+
+                new_year = int(
+                    data["year"]
+                )
+
+            except (ValueError, TypeError):
+
+                return jsonify({
+                    "success": False,
+                    "message": "year must be an integer"
+                }), 400
+
+            update_data["year"] = new_year
+
+        if "status" in data:
+
+            if data["status"] not in [
+                "active",
+                "inactive"
+            ]:
+
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid status"
+                }), 400
+
+            update_data["status"] = data[
+                "status"
+            ]
+
+        # -----------------------------------------
+        # Update levels
+        # -----------------------------------------
+
+        if "levels" in data:
+
+            levels = data["levels"]
+
+            if not isinstance(levels, list):
+
+                return jsonify({
+                    "success": False,
+                    "message": "levels must be an array"
+                }), 400
+
+            final_levels = []
+
+            used_level_ids = set()
+
+            for item in levels:
+
+                level_id = item.get(
+                    "level_id"
+                )
+
+                if not level_id:
+
+                    return jsonify({
+                        "success": False,
+                        "message": "level_id is required"
+                    }), 400
+
+                try:
+
+                    level_oid = ObjectId(
+                        level_id
+                    )
+
+                except Exception:
+
+                    return jsonify({
+                        "success": False,
+                        "message": "Invalid level_id"
+                    }), 400
+
+                level_doc = db.commission_levels.find_one({
+                    "_id": level_oid
+                })
+
+                if not level_doc:
+
+                    return jsonify({
+                        "success": False,
+                        "message": "Commission level not found"
+                    }), 404
+
+                if level_doc.get("status") != "active":
+
+                    return jsonify({
+                        "success": False,
+                        "message": "Commission level is inactive"
+                    }), 400
+
+                if str(level_oid) in used_level_ids:
+
+                    return jsonify({
+                        "success": False,
+                        "message": "Duplicate level found"
+                    }), 400
+
+                used_level_ids.add(
+                    str(level_oid)
+                )
+
+                try:
+
+                    first_year = float(
+                        item.get(
+                            "firstYear",
+                            0
+                        )
+                    )
+
+                    second_year = float(
+                        item.get(
+                            "secondYear",
+                            0
+                        )
+                    )
+
+                    third_year = float(
+                        item.get(
+                            "thirdYear",
+                            0
+                        )
+                    )
+
+                except (ValueError, TypeError):
+
+                    return jsonify({
+                        "success": False,
+                        "message": "Commission values must be numeric"
+                    }), 400
+
+                for value in [
+                    first_year,
+                    second_year,
+                    third_year
+                ]:
+
+                    if value < 0 or value > 100:
+
+                        return jsonify({
+                            "success": False,
+                            "message": "Commission must be between 0 and 100"
+                        }), 400
+
+                final_levels.append({
+
+                    "level_id": level_oid,
+
+                    "level":
+                        level_doc.get(
+                            "level"
+                        ),
+
+                    "levelName":
+                        level_doc.get(
+                            "levelName"
+                        ),
+
+                    "firstYear":
+                        first_year,
+
+                    "secondYear":
+                        second_year,
+
+                    "thirdYear":
+                        third_year
+                })
+
+            update_data[
+                "levels"
+            ] = final_levels
+
+        # -----------------------------------------
+        # Update
+        # -----------------------------------------
+
+        update_data[
+            "updated_at"
+        ] = datetime.utcnow()
+
+        db.commission_slabs.update_one(
+
+            {
+                "_id": ObjectId(
+                    slab_id
+                )
+            },
+
+            {
+                "$set": update_data
+            }
+        )
+
+        slab.update(
+            update_data
+        )
+
+        return jsonify({
+
+            "success": True,
+
+            "message":
+                "Commission slab updated successfully",
+
+            "data":
+                convert_objectids(slab)
+
+        }), 200
+
+    except Exception as e:
+
+        return jsonify({
+
+            "success": False,
+
+            "message": str(e)
+
+        }), 500
+
+@localprime_bp.route(
+    "/commission-slabs/<slab_id>",
+    methods=["DELETE"]
+)
+def delete_commission_slab(slab_id):
+
+    try:
+
+        result = db.commission_slabs.delete_one({
+            "_id": ObjectId(slab_id)
+        })
+
+        if result.deleted_count == 0:
+
+            return jsonify({
+                "success": False,
+                "message": "Commission slab not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": "Commission slab deleted successfully"
+        }), 200
+
+    except Exception:
+
+        return jsonify({
+            "success": False,
+            "message": "Invalid slab_id"
+        }), 400
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# channel 
+
+
+@localprime_bp.route("/channel-partner-requests", methods=["POST"])
+def create_channel_partner_request():
+
+    data = request.get_json(silent=True) or {}
+
+    agent_id = data.get("agent_id")
+    agent_name = data.get("agent_name")
+    remarks = data.get("remarks", "")
+
+    if not agent_id:
+        return jsonify({
+            "success": False,
+            "message": "agent_id is required"
+        }), 400
+
+    try:
+        agent_oid = ObjectId(agent_id)
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Invalid agent_id"
+        }), 400
+
+    # Check existing agent in members
+    agent = members.find_one({
+        "_id": agent_oid,
+        "isAgent": True
+    })
+
+    if not agent:
+        return jsonify({
+            "success": False,
+            "message": "Agent not found"
+        }), 404
+
+    if agent.get("channel_partner", False):
+        return jsonify({
+            "success": False,
+            "message": "Agent is already a channel partner"
+        }), 400
+
+    # Prevent duplicate pending request
+    existing = db.channel_partner_requests.find_one({
+        "agent_id": agent_oid,
+        "status": "pending"
+    })
+
+    if existing:
+        return jsonify({
+            "success": False,
+            "message": "Pending channel partner request already exists"
+        }), 409
+
+    now = datetime.utcnow()
+
+    actual_name = " ".join(filter(None, [
+        agent.get("Title"),
+        agent.get("FirstName"),
+        agent.get("LastName")
+    ])).strip()
+
+    payload = {
+        "agent_id": agent_oid,
+        "agentCode": agent.get("agentCode"),
+        "agent_name": actual_name or agent.get("name") or agent_name,
+        "memberId": agent.get("memberId"),
+        "branch_id": agent.get("branch_id"),
+        "branchCode": agent.get("branchCode"),
+        "remarks": remarks,
+
+        "status": "pending",
+        "markup_amount": None,
+
+        "approvedBy": None,
+        "approvedAt": None,
+        "rejectedReason": None,
+        "rejectedAt": None,
+
+        "created_at": now,
+        "updated_at": now
+    }
+
+    result = db.channel_partner_requests.insert_one(payload)
+    payload["_id"] = result.inserted_id
+
+    return jsonify({
+        "success": True,
+        "message": "Channel partner request submitted successfully",
+        "data": convert_objectids(payload)
+    }), 201
+
+
+# ============================================================
+# GET CHANNEL PARTNER REQUESTS
+# ============================================================
+
+@localprime_bp.route("/channel-partner-requests", methods=["GET"])
+def get_channel_partner_requests():
+
+    query = {}
+
+    status = request.args.get("status")
+    agent_id = request.args.get("agent_id")
+
+    if status:
+        if status not in ["pending", "approved", "rejected"]:
+            return jsonify({
+                "success": False,
+                "message": "Invalid status"
+            }), 400
+
+        query["status"] = status
+
+    if agent_id:
+        try:
+            query["agent_id"] = ObjectId(agent_id)
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid agent_id"
+            }), 400
+
+    requests = list(
+        db.channel_partner_requests
+        .find(query)
+        .sort("created_at", -1)
+    )
+
+    return jsonify({
+        "success": True,
+        "count": len(requests),
+        "data": convert_objectids(requests)
+    }), 200
+
+
+# ============================================================
+# APPROVE / REJECT CHANNEL PARTNER REQUEST
+# ============================================================
+
+@localprime_bp.route(
+    "/channel-partner-requests/<request_id>",
+    methods=["POST"]
+)
+def update_channel_partner_request(request_id):
+
+    data = request.get_json(silent=True) or {}
+
+    status = data.get("status")
+
+    if status not in ["approved", "rejected"]:
+        return jsonify({
+            "success": False,
+            "message": "Status must be approved or rejected"
+        }), 400
+
+    try:
+        request_oid = ObjectId(request_id)
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Invalid request_id"
+        }), 400
+
+    request_doc = db.channel_partner_requests.find_one({
+        "_id": request_oid
+    })
+
+    if not request_doc:
+        return jsonify({
+            "success": False,
+            "message": "Channel partner request not found"
+        }), 404
+
+    if request_doc.get("status") != "pending":
+        return jsonify({
+            "success": False,
+            "message": "Request already processed"
+        }), 400
+
+    now = datetime.utcnow()
+
+    update_data = {
+        "status": status,
+        "updated_at": now
+    }
+
+    if status == "approved":
+
+        if "markup_amount" not in data:
+            return jsonify({
+                "success": False,
+                "message": "markup_amount is required"
+            }), 400
+
+        try:
+            markup_amount = float(data["markup_amount"])
+
+            if not math.isfinite(markup_amount) or markup_amount < 0:
+                raise ValueError()
+
+        except (ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "message": "markup_amount must be a valid non-negative number"
+            }), 400
+
+        # Update member
+        member_result = members.update_one(
+            {
+                "_id": request_doc["agent_id"],
+                "isAgent": True,
+                "channel_partner": {"$ne": True}
+            },
+            {
+                "$set": {
+                    "channel_partner": True,
+                    "markup_amount": markup_amount,
+                    "updated_at": now
+                }
+            }
+        )
+
+        if member_result.matched_count == 0:
+            return jsonify({
+                "success": False,
+                "message": "Agent not found or already a channel partner"
+            }), 409
+
+        update_data.update({
+            "markup_amount": markup_amount,
+            "approvedBy": data.get("approvedBy"),
+            "approvedAt": now
+        })
+
+    else:
+        update_data.update({
+            "rejectedReason": data.get("rejectedReason", ""),
+            "rejectedAt": now
+        })
+
+    db.channel_partner_requests.update_one(
+        {
+            "_id": request_oid,
+            "status": "pending"
+        },
+        {
+            "$set": update_data
+        }
+    )
+
+    updated_request = db.channel_partner_requests.find_one({
+        "_id": request_oid
+    })
+
+    return jsonify({
+        "success": True,
+        "message": f"Channel partner request {status} successfully",
+        "data": convert_objectids(updated_request)
+    }), 200
