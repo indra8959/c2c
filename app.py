@@ -237,6 +237,13 @@ def webhook():
 
             if is_recent(timestamp)==False:
 
+                attendences = attendence(data , "67ee5e1bde4cb48c515073ee")
+                if attendences:
+                    if isinstance(attendences, tuple) and isinstance(attendences[0], dict) and attendences[0].get("handled"):
+                        return jsonify(attendences[0]), attendences[1]
+                    elif isinstance(attendences, dict) and attendences.get("handled"):
+                        return jsonify(attendences), 200
+
                 if msg_type == 'interactive' and "button_reply" in message_info.get('interactive', {}):
                     button_id = message_info["interactive"]["button_reply"]["id"]
                     print(button_id)
