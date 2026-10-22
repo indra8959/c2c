@@ -20,11 +20,11 @@ MONGO_URI = os.getenv(
 )
 WHATSAPP_ACCESS_TOKEN = os.getenv(
     "WHATSAPP_ACCESS_TOKEN",
-    'EAAOOnx48PYMBS5driPPmNxMVyOpEPZC2BDLjSgotkZCT1dpNB5fW0Sd5WXjuUHE2R9vT40K2tZAzBapN6oOkjpcZB8OqmlCZAa1gT161EGU95iccwdLJzOfH6n4MOrvdFJq08dvsskZB3q0xLanc5hZBi0QZA5fSfRlRkL0cWWMpCJeyHAvMSjDMhSmORPZCw4kZBQFeVolcRdTdvklRiLFV7eW4uCvaUUhZAxRIZBjrvcY8MTiV1sKLNYDFuWZCMOsxhnCFbmlOLFZAyNpgJi4Et4yRhZCDuOw'
+    'EACHqNPEWKbkBSrBZA8ZBD3Vqfo3VvHnjYBGVptpMlWsJ5EzDkvaxE7WR175JTzuGn5Vnd086PdEEZBZBd8Yy4ZCv9hYnDM08mKgh2feGNNt9aiDwcFV74gDbnFTFeutxH9GopjsTDovLhM5cIZA012EoTxy8ga8rWRTwHY2GXxGyoULM1CsrTcZCQMIH8liKxP5aAZDZD'
 )
 WHATSAPP_PHONE_NUMBER_ID = os.getenv(
     "WHATSAPP_PHONE_NUMBER_ID",
-    "593779133824503"
+    "563776386825270"
 )
 WHATSAPP_API_VERSION = os.getenv(
     "WHATSAPP_API_VERSION",
@@ -35,7 +35,7 @@ if not MONGO_URI:
     raise RuntimeError("MONGO_URI environment variable is required")
 
 client = MongoClient(MONGO_URI)
-db = client["app_db"]
+db = client["caredb"]
 
 # Database Collections (Aligned with c2c_app.py)
 doctors = db["doctors"]
