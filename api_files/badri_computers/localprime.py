@@ -4040,8 +4040,8 @@ def saving_wallet_deposit():
         voucher_type="Payment",
         voucher_mode="Bank",
         narration=narration,
-        credit_ledger_id=data.get("debit_ledger_idx", "A42"),
-        credit_ledger_name=data.get("debit_ledger_namex", "Wallet"),
+        credit_ledger_id=data.get("debit_ledger_idx", "A44"),
+        credit_ledger_name=data.get("debit_ledger_namex", "Advance from Channel Partners"),
         debit_ledger_id=data.get("credit_ledger_id", "A11"),
         debit_ledger_name=data.get("credit_ledger_name", "IDBI Bank"),
         created_by=created_by
@@ -4445,11 +4445,11 @@ def decide_saving_wallet_add_money_request(request_id):
         voucher = create_saving_wallet_voucher(
             wallet=wallet,
             amount=amount,
-            voucher_type="Payment",
+            voucher_type="Receipt",
             voucher_mode="Bank",
             narration="Approved agent saving wallet add money request",
-            credit_ledger_id="A42",
-            credit_ledger_name="Wallet",
+            credit_ledger_id="A44",
+            credit_ledger_name="Advance from Channel Partners",
             debit_ledger_id=request_doc["bank_ledger_id"],
             debit_ledger_name=request_doc["bank_name"],
             created_by=approved_by
