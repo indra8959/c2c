@@ -1691,6 +1691,7 @@ def agent_create_order():
             'kalra_id': 'xx',
             'appointmenttype': 'current',
             'agent_id': str(data.get("agentCode", "NA")),
+            'markup_amount': str(data.get("markup_amount", "0")),
             'patient_name': data.get("patient_name", "User"),
             'guardian_name': data.get("father_name", "User"),
             'date_of_appointment': xdate,
