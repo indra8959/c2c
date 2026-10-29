@@ -9,6 +9,7 @@ from pymongo import MongoClient
 WEBHOOK_SECRET = "doctor"
 
 
+from pymongo.errors import BulkWriteError
 
 MONGO_URI = "mongodb+srv://care2connect:connect0011@cluster0.gjjanvi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 client = MongoClient(MONGO_URI)
@@ -220,4 +221,189 @@ def paymentrequest_msg(from_number,MID,amount,name,settlement_id,utr):
     response = requests.post(external_url, json=incoming_data, headers=headers)
     # print(jsonify(response.json()))
     return "OK", 200
+
+
+
+
+IST = ZoneInfo("Asia/Kolkata")
+
+@function_settlement.route("/api/vouchers/razorpay-settlement", methods=["POST"])
+def create_razorpay_settlement_vouchers():
+    try:
+        data = request.get_json(silent=True)
+
+        # JSON array validation
+        if not isinstance(data, list) or not data:
+            return jsonify({
+                "status": "error",
+                "message": "Non-empty JSON array required"
+            }), 400
+
+        # Validate all rows before inserting anything
+        validated_rows = []
+        seen_ids = set()
+
+        for index, row in enumerate(data):
+            if not isinstance(row, dict):
+                return jsonify({
+                    "status": "error",
+                    "message": f"Invalid record at index {index}"
+                }), 400
+
+            settlement_id = str(row.get("id", "")).strip()
+            utr = str(row.get("utr", "")).strip()
+
+            if not settlement_id or not utr:
+                return jsonify({
+                    "status": "error",
+                    "message": f"id and utr required at index {index}"
+                }), 400
+
+            if settlement_id in seen_ids:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Duplicate settlement id: {settlement_id}"
+                }), 400
+
+            seen_ids.add(settlement_id)
+
+            try:
+                amount = float(row["amount"])
+                if not __import__("math").isfinite(amount) or amount <= 0:
+                    raise ValueError()
+            except (KeyError, TypeError, ValueError):
+                return jsonify({
+                    "status": "error",
+                    "message": f"Invalid amount at index {index}"
+                }), 400
+
+            try:
+                date_value = str(row["created_at"]).strip()
+                settlement_date = datetime.strptime(
+                    date_value[:10], "%Y-%m-%d"
+                ).replace(tzinfo=IST)
+            except (KeyError, TypeError, ValueError):
+                return jsonify({
+                    "status": "error",
+                    "message": f"Invalid created_at at index {index}"
+                }), 400
+
+            validated_rows.append({
+                "id": settlement_id,
+                "amount": round(amount, 2),
+                "utr": utr,
+                "date": settlement_date
+            })
+
+        # Avoid creating the same settlement voucher twice.
+        existing_ids = set(
+            vouchers.distinct(
+                "settlement_id",
+                {"settlement_id": {"$in": list(seen_ids)}}
+            )
+        )
+
+        duplicates = sorted(existing_ids)
+
+        if duplicates:
+            return jsonify({
+                "status": "error",
+                "message": "Some settlement vouchers already exist",
+                "duplicate_ids": duplicates
+            }), 409
+
+        # Generate voucher numbers safely for concurrent requests.
+        created_vouchers = []
+        skipped = []
+
+        for row in validated_rows:
+            now = datetime.now(IST)
+            date_str = row["date"].strftime("%Y-%m-%d")
+            start = row["date"].replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            end = start + timedelta(days=1)
+
+            # The date-based count uses the settlement date.
+            count = vouchers.count_documents({
+                "voucher_type": "Journal",
+                "voucher_mode": "Journal",
+                "date": {"$gte": start, "$lt": end}
+            })
+
+            voucher_number = f"JRV-{date_str}-{count + 1}"
+
+            voucher = {
+                "voucher_number": voucher_number,
+                "voucher_type": "Journal",
+                "voucher_mode": "Journal",
+                "txn": vouchers.count_documents({}) + 1,
+
+                "from_id": "Razorpay",
+                "to_id": "Razorpay",
+                "date": row["date"],
+
+                "settlement_id": row["id"],
+                "Payment_id": row["id"],
+                "transaction_id": row["utr"],
+                "utr": row["utr"],
+                "narration": f"Razorpay Settlement {row['id']}",
+                "amount": row["amount"],
+
+                "entries": [
+                    {
+                        "narration": f"Razorpay Settlement {row['id']}",
+                        "ledger_id": "A4",
+                        "ledger_name": "IDFC Bank",
+                        "debit": row["amount"],
+                        "credit": 0
+                    },
+                    {
+                        "narration": f"Razorpay Settlement {row['id']}",
+                        "ledger_id": "A1",
+                        "ledger_name": "Razorpay",
+                        "debit": 0,
+                        "credit": row["amount"]
+                    }
+                ],
+
+                "created_by": "system",
+                "created_at": now
+            }
+
+            try:
+                result = vouchers.insert_one(voucher)
+                created_vouchers.append({
+                    "voucher_id": str(result.inserted_id),
+                    "voucher_number": voucher_number,
+                    "settlement_id": row["id"],
+                    "amount": row["amount"]
+                })
+            except Exception:
+                # Stop processing; some previous records may already exist.
+                app.logger.exception(
+                    "Settlement voucher insertion failed: %s", row["id"]
+                )
+                return jsonify({
+                    "status": "partial",
+                    "message": "Processing stopped after an insertion error",
+                    "created_count": len(created_vouchers),
+                    "created_vouchers": created_vouchers,
+                    "failed_settlement_id": row["id"]
+                }), 500
+
+        return jsonify({
+            "status": "ok",
+            "message": "Settlement vouchers created successfully",
+            "total_records": len(validated_rows),
+            "created_count": len(created_vouchers),
+            "vouchers": created_vouchers
+        }), 201
+
+    except Exception as e:
+        app.logger.exception("Settlement voucher API failed")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
