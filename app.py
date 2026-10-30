@@ -44,7 +44,7 @@ from doctors.functions.doctor_payble import send_doctor_vouchers_excel,report_re
 
 from api_files.badri_computers.routes import badri_enterprises
 from doctors.functions.attedance import attendence
-# from doctors.functions.lab_test import lab_test
+from doctors.functions.lab_test import lab_test
 
 app = Flask(__name__)
 CORS(app)
@@ -66,7 +66,7 @@ app.register_blueprint(badri_enterprises, url_prefix="/badri_enterprises")
 
 app.register_blueprint(function_refund, url_prefix="/function_refund")
 app.register_blueprint(function_settlement, url_prefix="/function_settlement")
-# app.register_blueprint(lab_test, url_prefix="/lab_test")
+app.register_blueprint(lab_test, url_prefix="/lab_test")
 # razorpay
 
 
