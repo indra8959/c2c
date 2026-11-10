@@ -4756,14 +4756,14 @@ def get_patientsxx(did):
         try:
             appointment_index = int(doc.get("appointment_index", 0))
         except:
-            appointment_index = 121
+            appointment_index = 151
         patients.append({
             "id": str(doc["_id"]),
             "name": doc.get("patient_name",""),
             "fatherName": doc.get("guardian_name",""),
             "gender": doc.get("sex",""),
             "mobile": doc.get("whatsapp_number",""),
-            "appointmentNo": "" if appointment_index > 120 else appointment_index
+            "appointmentNo": "" if appointment_index > 150 else appointment_index
         })
 
     print('hy')
