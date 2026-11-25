@@ -2,8 +2,11 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 # Razorpay Credentials
-RAZORPAY_KEY_ID = "rzp_live_R9tGl7bLSIBV6f"
-RAZORPAY_KEY_SECRET = "dTvrApHzGc2VGCw8olP3xVOL"
+# RAZORPAY_KEY_ID = "rzp_live_R9tGl7bLSIBV6f"
+# RAZORPAY_KEY_SECRET = "dTvrApHzGc2VGCw8olP3xVOL"
+
+RAZORPAY_KEY_ID = "rzp_live_U3uqExgbWBU81A"
+RAZORPAY_KEY_SECRET = "bmM5QI2zRT8q4AUFWF4XUe9U"
 
 def create_transfers(pay_id,ac,amount):
     try:
